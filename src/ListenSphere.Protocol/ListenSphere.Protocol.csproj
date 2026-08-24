@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Language-neutral ListenSphere Protocol bindings and audio datagram codec.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+    <Protobuf Include="../../protocol/protobuf/listensphere/v1/control.proto"
+              Link="Protobuf/control.proto"
+              GrpcServices="None" />
+  </ItemGroup>
+</Project>
+

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all"
+                      IncludeAssets="runtime; build; native; contentfiles; analyzers" />
+    <ProjectReference Include="../../src/ListenSphere.Audio.Abstractions/ListenSphere.Audio.Abstractions.csproj" />
+    <ProjectReference Include="../../src/ListenSphere.Audio.Engine/ListenSphere.Audio.Engine.csproj" />
+    <ProjectReference Include="../../src/ListenSphere.Configuration/ListenSphere.Configuration.csproj" />
+    <ProjectReference Include="../../src/ListenSphere.Device/ListenSphere.Device.csproj" />
+    <ProjectReference Include="../../src/ListenSphere.Diagnostics/ListenSphere.Diagnostics.csproj" />
+    <ProjectReference Include="../../src/ListenSphere.Network/ListenSphere.Network.csproj" />
+    <ProjectReference Include="../../src/ListenSphere.Protocol/ListenSphere.Protocol.csproj" />
+  </ItemGroup>
+</Project>

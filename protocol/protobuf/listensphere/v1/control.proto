@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package listensphere.protocol.v1;
+
+option csharp_namespace = "ListenSphere.Protocol.V1";
+option java_package = "io.listensphere.protocol.v1";
+option java_multiple_files = true;
+
+message ProtocolVersion {
+  uint32 major = 1;
+  uint32 minor = 2;
+}
+
+message DeviceIdentity {
+  bytes device_id = 1;
+  string display_name = 2;
+  string platform = 3;
+  uint64 capabilities = 4;
+  bytes certificate_fingerprint = 5;
+}
+
+message PairRequest {
+  DeviceIdentity sender = 1;
+  bytes sender_nonce = 2;
+  string one_time_code = 3;
+}
+
+message PairResponse {
+  bool accepted = 1;
+  bytes controller_nonce = 2;
+  ErrorCode error = 3;
+  DeviceIdentity controller = 4;
+}
+
+message Heartbeat {
+  uint64 monotonic_milliseconds = 1;
+}
+
+message HelloRequest {
+  DeviceIdentity device = 1;
+}
+
+message HelloResponse {
+  DeviceIdentity controller = 1;
+  bool paired = 2;
+  ErrorCode error = 3;
+}
+
+message HeartbeatAck {
+  uint64 echo_monotonic_milliseconds = 1;
+  uint64 responder_monotonic_milliseconds = 2;
+}
+
+message Disconnect {
+  ErrorCode error = 1;
+  string reason = 2;
+}
+
+message StartStream {
+  fixed32 stream_id = 1;
+  uint32 codec = 2;
+  uint32 sample_rate = 3;
+  uint32 channel_count = 4;
+  uint32 frame_duration_ms = 5;
+  bytes session_id = 6;
+  bytes session_key = 7;
+  bytes session_salt = 8;
+  uint32 udp_port = 9;
+  uint32 frame_samples = 10;
+}
+
+message StopStream {
+  fixed32 stream_id = 1;
+  string reason = 2;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_INCOMPATIBLE_VERSION = 1;
+  ERROR_CODE_NOT_PAIRED = 2;
+  ERROR_CODE_PAIRING_CODE_INVALID = 3;
+  ERROR_CODE_PAIRING_RATE_LIMITED = 4;
+  ERROR_CODE_CAPABILITY_NOT_SUPPORTED = 5;
+  ERROR_CODE_STREAM_REJECTED = 6;
+  ERROR_CODE_INTERNAL = 7;
+}
+
+message Envelope {
+  ProtocolVersion version = 1;
+  fixed64 request_id = 2;
+
+  oneof payload {
+    PairRequest pair_request = 10;
+    PairResponse pair_response = 11;
+    Heartbeat heartbeat = 12;
+    StartStream start_stream = 13;
+    StopStream stop_stream = 14;
+    HelloRequest hello_request = 15;
+    HelloResponse hello_response = 16;
+    HeartbeatAck heartbeat_ack = 17;
+    Disconnect disconnect = 18;
+  }
+}

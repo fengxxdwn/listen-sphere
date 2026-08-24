@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Platform-neutral audio engine for ListenSphere.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ListenSphere.Audio.Abstractions/ListenSphere.Audio.Abstractions.csproj" />
+  </ItemGroup>
+</Project>
+

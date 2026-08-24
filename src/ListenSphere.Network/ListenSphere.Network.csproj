@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Platform-neutral discovery, pairing, and transport contracts.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="MeaMod.DNS" />
+    <ProjectReference Include="../ListenSphere.Device/ListenSphere.Device.csproj" />
+    <ProjectReference Include="../ListenSphere.Protocol/ListenSphere.Protocol.csproj" />
+  </ItemGroup>
+</Project>
