@@ -7,6 +7,7 @@ namespace ListenSphere.Controller;
 public partial class MainWindow : Window
 {
     private readonly ControllerViewModel viewModel;
+    private Task initializationTask = Task.CompletedTask;
     private bool shutdownStarted;
     private bool shutdownComplete;
 
@@ -23,7 +24,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            await viewModel.InitializeAsync();
+            initializationTask = viewModel.InitializeAsync();
+            await initializationTask;
         }
         catch (Exception exception)
         {
@@ -33,7 +35,7 @@ public partial class MainWindow : Window
                 "聆界",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
-            Close();
+            _ = Dispatcher.BeginInvoke(Close);
         }
     }
 
@@ -54,6 +56,15 @@ public partial class MainWindow : Window
         IsEnabled = false;
         try
         {
+            try
+            {
+                await initializationTask;
+            }
+            catch (Exception exception)
+            {
+                Log.Debug(exception, "Controller initialization completed with an error before shutdown");
+            }
+
             await viewModel.DisposeAsync();
         }
         catch (Exception exception)

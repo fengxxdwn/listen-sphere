@@ -32,6 +32,7 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
     private TcpListener? listener;
     private Task? acceptLoop;
     private long clientHandlerId;
+    private int disposed;
 
     public ListenSphereControlServer(
         LocalDeviceIdentity identity,
@@ -492,6 +493,11 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        {
+            return;
+        }
+
         await lifetime.CancelAsync().ConfigureAwait(false);
         listener?.Stop();
         foreach (TcpClient client in clients.Values)

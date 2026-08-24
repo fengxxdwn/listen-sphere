@@ -88,6 +88,7 @@ dotnet run --project apps/ListenSphere.Sender/ListenSphere.Sender.csproj -c Rele
 - 新增覆盖：多流混音/缺帧/削波、包序号缺口/迟到/重复/回绕、损坏配置恢复、漂移估计/缓冲决策、运行中日志归档及隐私过滤、设备通知注册与注销。
 - Controller 启动、显示窗口、正常关闭：退出码 0。
 - Sender 启动、显示窗口、正常关闭：退出码 0。
+- 初始化期间立即关闭竞态回归：Controller 5/5、Sender 5/5，均在 10 秒内退出且退出码 0。
 
 ## 8. 已知问题
 
