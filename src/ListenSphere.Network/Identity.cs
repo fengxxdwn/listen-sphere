@@ -125,7 +125,7 @@ public static class LocalIdentityStore
     private sealed record IdentityMetadata(Guid DeviceId);
 }
 
-internal static class ProtocolIdentity
+public static class ProtocolIdentity
 {
     public static DeviceDescriptor ToDescriptor(DeviceIdentity identity)
     {

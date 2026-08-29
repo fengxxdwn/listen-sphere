@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Google.Protobuf;
 using ListenSphere.Protocol.V1;
 using Xunit;
 
@@ -47,4 +48,22 @@ public sealed class ControlFrameTests
                 truncated,
                 TestContext.Current.CancellationToken));
     }
+
+    [Fact]
+    public void HelloRequest_RoundTripsMicrophoneSourceIdentity()
+    {
+        var request = new HelloRequest
+        {
+            SourceId = "android-default",
+            SourceName = "手机麦克风",
+            SourceKind = "microphone"
+        };
+
+        HelloRequest actual = HelloRequest.Parser.ParseFrom(request.ToByteArray());
+
+        Assert.Equal("android-default", actual.SourceId);
+        Assert.Equal("手机麦克风", actual.SourceName);
+        Assert.Equal("microphone", actual.SourceKind);
+    }
+
 }

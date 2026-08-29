@@ -38,6 +38,12 @@ message Heartbeat {
 
 message HelloRequest {
   DeviceIdentity device = 1;
+  bytes device_certificate = 2;
+  bytes client_nonce = 3;
+  bytes identity_signature = 4;
+  string source_id = 5;
+  string source_name = 6;
+  string source_kind = 7;
 }
 
 message HelloResponse {
@@ -74,6 +80,26 @@ message StopStream {
   string reason = 2;
 }
 
+message OpenAudioStream {
+  string source_id = 1;
+  string display_name = 2;
+  string source_kind = 3;
+}
+
+message AudioStreamOpened {
+  string source_id = 1;
+  string display_name = 2;
+  string source_kind = 3;
+  bytes channel_id = 4;
+  StartStream stream = 5;
+  ErrorCode error = 6;
+}
+
+message CloseAudioStream {
+  fixed32 stream_id = 1;
+  string reason = 2;
+}
+
 enum ErrorCode {
   ERROR_CODE_UNSPECIFIED = 0;
   ERROR_CODE_INCOMPATIBLE_VERSION = 1;
@@ -99,5 +125,8 @@ message Envelope {
     HelloResponse hello_response = 16;
     HeartbeatAck heartbeat_ack = 17;
     Disconnect disconnect = 18;
+    OpenAudioStream open_audio_stream = 19;
+    AudioStreamOpened audio_stream_opened = 20;
+    CloseAudioStream close_audio_stream = 21;
   }
 }

@@ -1,12 +1,110 @@
-using System.Net;
+using System.Net.NetworkInformation;
 using ListenSphere.Device;
 using ListenSphere.Network;
+using System.Net;
 using Xunit;
 
 namespace ListenSphere.Core.Tests;
 
 public sealed class NetworkControlTests
 {
+    [Fact]
+    public void ManualConnectEndpoints_KeepPrivateIpv4AndIncludePort()
+    {
+        string endpoints = ListenSphereDiscovery.FormatManualConnectEndpoints(
+            [
+                IPAddress.Parse("192.168.137.1"),
+                IPAddress.Parse("10.0.0.5"),
+                IPAddress.Parse("8.8.8.8"),
+                IPAddress.IPv6Loopback,
+                IPAddress.Parse("192.168.137.1")
+            ],
+            58566);
+
+        Assert.Equal("10.0.0.5:58566 · 192.168.137.1:58566", endpoints);
+    }
+
+    [Fact]
+    public void ReconnectBackoff_IsBoundedAndIndependentPerTarget()
+    {
+        var tracker = new ReconnectBackoffTracker(
+            [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(3)]);
+        Guid first = Guid.NewGuid();
+        Guid second = Guid.NewGuid();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        Assert.True(tracker.Check(first, now).CanAttempt);
+        ReconnectBackoffDecision failed = tracker.RecordFailure(first, now);
+        Assert.Equal(TimeSpan.FromSeconds(1), failed.RetryAfter);
+        Assert.False(tracker.Check(first, now).CanAttempt);
+        Assert.True(tracker.Check(second, now).CanAttempt);
+        Assert.True(tracker.Check(first, now.AddSeconds(1)).CanAttempt);
+
+        tracker.RecordFailure(first, now.AddSeconds(1));
+        ReconnectBackoffDecision bounded = tracker.RecordFailure(first, now.AddSeconds(4));
+        Assert.Equal(TimeSpan.FromSeconds(3), bounded.RetryAfter);
+        tracker.Reset(first);
+        Assert.True(tracker.Check(first, now).CanAttempt);
+    }
+
+    [Fact]
+    public void LocalMachineAddressRecognizesLoopbackAndActiveInterfaces()
+    {
+        Assert.True(ListenSphereDiscovery.IsLocalMachineAddress(IPAddress.Loopback));
+
+        IPAddress[] activeAddresses = NetworkInterface.GetAllNetworkInterfaces()
+            .SelectMany(candidate => candidate.GetIPProperties().UnicastAddresses)
+            .Select(candidate => candidate.Address)
+            .Where(candidate => !IPAddress.IsLoopback(candidate))
+            .ToArray();
+        Assert.All(activeAddresses, candidate =>
+            Assert.True(ListenSphereDiscovery.IsLocalMachineAddress(candidate)));
+    }
+
+    [Theory]
+    [InlineData(1, "Wireless")]
+    [InlineData(2, "Bluetooth")]
+    [InlineData(3, "Wired")]
+    public void TransportPreface_ParsesStableCodes(byte code, string expected)
+    {
+        byte[] value = [(byte)'L', (byte)'S', (byte)'T', (byte)'H', code];
+
+        Assert.True(ControlTransportPreface.TryParse(value, out string transport));
+        Assert.Equal(expected, transport);
+        Assert.False(ControlTransportPreface.TryParse("TLS"u8, out _));
+    }
+
+    [Theory]
+    [InlineData("10.0.0.1", true)]
+    [InlineData("172.16.0.1", true)]
+    [InlineData("172.31.255.254", true)]
+    [InlineData("192.168.31.164", true)]
+    [InlineData("26.231.136.157", false)]
+    [InlineData("169.254.1.1", false)]
+    [InlineData("8.8.8.8", false)]
+    public void Discovery_ClassifiesPrivateLanAddresses(string text, bool expected)
+    {
+        Assert.Equal(
+            expected,
+            ListenSphereDiscovery.IsLocalNetworkAddress(IPAddress.Parse(text)));
+    }
+
+    [Fact]
+    public void ApplicationChannelIdentity_IsStableAndScopedToDevice()
+    {
+        Guid firstDevice = Guid.NewGuid();
+        Guid secondDevice = Guid.NewGuid();
+
+        Guid first = AudioStreamIdentity.CreateChannelId(firstDevice, @"C:\Apps\Game.exe");
+        Guid same = AudioStreamIdentity.CreateChannelId(firstDevice, @"c:\apps\game.exe");
+        Guid otherDevice = AudioStreamIdentity.CreateChannelId(secondDevice, @"C:\Apps\Game.exe");
+        Guid otherApplication = AudioStreamIdentity.CreateChannelId(firstDevice, @"C:\Apps\Chat.exe");
+
+        Assert.Equal(first, same);
+        Assert.NotEqual(first, otherDevice);
+        Assert.NotEqual(first, otherApplication);
+    }
+
     [Fact]
     public void PairingCode_IsSixDigitsAndSingleUse()
     {
@@ -15,8 +113,55 @@ public sealed class NetworkControlTests
         PairingCode code = service.Generate();
 
         Assert.Matches("^[0-9]{6}$", code.Value);
+        Assert.InRange(
+            code.ExpiresAt - DateTimeOffset.UtcNow,
+            TimeSpan.FromMinutes(4.9),
+            TimeSpan.FromMinutes(5.1));
         Assert.Equal(PairingCodeValidation.Accepted, service.ValidateAndConsume(code.Value));
         Assert.Equal(PairingCodeValidation.Expired, service.ValidateAndConsume(code.Value));
+    }
+
+    [Fact]
+    public void PairingCode_RateLimitIsScopedAndRegenerationDoesNotBypassBlock()
+    {
+        var service = new PairingCodeService();
+        PairingCode first = service.Generate();
+        string incorrect = first.Value == "000000" ? "999999" : "000000";
+
+        for (var attempt = 1; attempt < 5; attempt++)
+        {
+            Assert.Equal(
+                PairingCodeValidation.Invalid,
+                service.ValidateAndConsume(incorrect, "Bluetooth:device-a"));
+        }
+
+        Assert.Equal(
+            PairingCodeValidation.RateLimited,
+            service.ValidateAndConsume(incorrect, "Bluetooth:device-a"));
+
+        PairingCode replacement = service.Generate();
+
+        Assert.Equal(
+            PairingCodeValidation.RateLimited,
+            service.ValidateAndConsume(replacement.Value, "Bluetooth:device-a"));
+        Assert.Equal(
+            PairingCodeValidation.Accepted,
+            service.ValidateAndConsume(replacement.Value, "Wireless:device-b"));
+    }
+
+    [Fact]
+    public void PairingCode_CancelImmediatelyInvalidatesActiveCode()
+    {
+        var service = new PairingCodeService();
+        PairingCode code = service.Generate();
+
+        Assert.True(service.HasActiveCode);
+        service.Cancel();
+
+        Assert.False(service.HasActiveCode);
+        Assert.Equal(
+            PairingCodeValidation.Expired,
+            service.ValidateAndConsume(code.Value, "Wireless:device-a"));
     }
 
     [Fact]
@@ -38,11 +183,34 @@ public sealed class NetworkControlTests
             await store.UpsertAsync(device, TestContext.Current.CancellationToken);
 
             var reloaded = new JsonTrustedDeviceStore(path);
-            Assert.Equal(
-                device,
+            TrustedDevice stored = Assert.IsType<TrustedDevice>(
                 await reloaded.FindAsync(
                     device.DeviceId,
                     TestContext.Current.CancellationToken));
+            Assert.Equal(device.DeviceId, stored.DeviceId);
+            Assert.Equal(device.DisplayName, stored.DisplayName);
+            Assert.Equal(device.CertificateFingerprint, stored.CertificateFingerprint);
+            Assert.Equal(device.PairedAt, stored.PairedAt);
+            Assert.Equal(device.LastSeen, stored.LastSeen);
+            Assert.True(stored.SupportsTransport("Wireless"));
+
+            DateTimeOffset bluetoothSeen = DateTimeOffset.UtcNow.AddMinutes(1);
+            TrustedDevice bluetoothDevice = device with
+            {
+                LastSeen = bluetoothSeen,
+                Transport = "Bluetooth"
+            };
+            await reloaded.UpsertAsync(
+                bluetoothDevice,
+                TestContext.Current.CancellationToken);
+            IReadOnlyList<TrustedDevice> updated = await reloaded.GetAllAsync(
+                TestContext.Current.CancellationToken);
+            Assert.Single(updated);
+            Assert.Equal("Bluetooth", updated[0].Transport);
+            Assert.Equal(bluetoothSeen, updated[0].LastSeen);
+            Assert.True(updated[0].SupportsTransport("Wireless"));
+            Assert.True(updated[0].SupportsTransport("Bluetooth"));
+            Assert.Equal(2, updated[0].ObservedTransports.Count);
 
             await reloaded.RemoveAsync(
                 device.DeviceId,
@@ -124,6 +292,49 @@ public sealed class NetworkControlTests
                 Assert.True(await receivedAudio.MoveNextAsync());
                 Assert.Equal(first.AudioSession.SessionId, receivedAudio.Current.SessionId);
                 Assert.Equal(pcm, receivedAudio.Current.Pcm);
+
+                OpenedAudioStream game = await firstClient.OpenAudioStreamAsync(
+                    @"C:\Games\Example.exe",
+                    "Example Game",
+                    cancellationToken: TestContext.Current.CancellationToken);
+                OpenedAudioStream chat = await firstClient.OpenAudioStreamAsync(
+                    @"C:\Apps\Chat.exe",
+                    "Example Chat",
+                    cancellationToken: TestContext.Current.CancellationToken);
+                Assert.NotEqual(game.ChannelId, chat.ChannelId);
+                Assert.NotEqual(game.Session.SessionId, chat.Session.SessionId);
+
+                await using var gameSender = new UdpAudioSender(game.Session);
+                await using var chatSender = new UdpAudioSender(chat.Session);
+                for (ulong timestamp = 0; timestamp < 4 * 480; timestamp += 480)
+                {
+                    await gameSender.SendFrameAsync(
+                        pcm, timestamp, TestContext.Current.CancellationToken);
+                    await chatSender.SendFrameAsync(
+                        pcm, timestamp, TestContext.Current.CancellationToken);
+                }
+
+                var receivedSessions = new HashSet<Guid>();
+                while (receivedSessions.Count < 2)
+                {
+                    Assert.True(await receivedAudio.MoveNextAsync());
+                    if (receivedAudio.Current.SessionId == game.Session.SessionId ||
+                        receivedAudio.Current.SessionId == chat.Session.SessionId)
+                    {
+                        receivedSessions.Add(receivedAudio.Current.SessionId);
+                    }
+                }
+                Assert.Contains(game.Session.SessionId, receivedSessions);
+                Assert.Contains(chat.Session.SessionId, receivedSessions);
+
+                await firstClient.CloseAudioStreamAsync(
+                    game.Session.StreamId,
+                    "test complete",
+                    TestContext.Current.CancellationToken);
+                await firstClient.CloseAudioStreamAsync(
+                    chat.Session.StreamId,
+                    "test complete",
+                    TestContext.Current.CancellationToken);
             }
 
             Assert.NotNull(
@@ -145,6 +356,44 @@ public sealed class NetworkControlTests
             Assert.Equal(ControlClientOutcome.Connected, second.Outcome);
             Assert.NotNull(second.AudioSession);
             Assert.NotEqual(Guid.Empty, second.AudioSession.SessionId);
+
+            var intentionalDisconnect = new TaskCompletionSource<ControlPeerEvent>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            secondClient.StateChanged += (_, peer) =>
+            {
+                if (peer.State == DeviceConnectionState.Offline &&
+                    peer.Message.Contains("主控端已断开", StringComparison.Ordinal))
+                {
+                    intentionalDisconnect.TrySetResult(peer);
+                }
+            };
+            await server.DisconnectDeviceAsync(
+                senderIdentity.Device.DeviceId,
+                TestContext.Current.CancellationToken);
+            ControlPeerEvent disconnected = await intentionalDisconnect.Task.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+            Assert.Equal(DeviceConnectionState.Offline, disconnected.State);
+            Assert.NotNull(await controllerTrust.FindAsync(
+                senderIdentity.Device.DeviceId,
+                TestContext.Current.CancellationToken));
+
+            await server.RevokeAsync(
+                senderIdentity.Device.DeviceId,
+                TestContext.Current.CancellationToken);
+            Assert.Null(
+                await controllerTrust.FindAsync(
+                    senderIdentity.Device.DeviceId,
+                    TestContext.Current.CancellationToken));
+
+            await using var revokedClient = new ListenSphereControlClient(
+                senderIdentity,
+                senderTrust);
+            ControlClientResult revoked = await revokedClient.ConnectAsync(
+                discovered,
+                null,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(ControlClientOutcome.PairingRequired, revoked.Outcome);
         }
         finally
         {

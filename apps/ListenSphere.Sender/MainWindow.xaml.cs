@@ -1,6 +1,9 @@
 using System.Windows;
+using System.Windows.Input;
 using System.ComponentModel;
 using Serilog;
+using System.Windows.Interop;
+using ListenSphere.Windows.Devices;
 
 namespace ListenSphere.Sender;
 
@@ -18,6 +21,72 @@ public partial class MainWindow : Window
         DataContext = viewModel;
         Loaded += OnLoaded;
         Closing += OnClosing;
+        StateChanged += OnWindowStateChanged;
+        SourceInitialized += OnSourceInitialized;
+    }
+
+    private void OnSourceInitialized(object? sender, EventArgs args) =>
+        DwmWindowAppearance.TryEnableRoundedCorners(new WindowInteropHelper(this).Handle);
+
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs args)
+    {
+        if (args.ChangedButton != MouseButton.Left)
+        {
+            return;
+        }
+
+        if (args.ClickCount == 2)
+        {
+            ToggleMaximizeRestore();
+            return;
+        }
+
+        if (WindowState == WindowState.Maximized)
+        {
+            RestoreForDrag(args);
+        }
+
+        DragMove();
+    }
+
+    private void MinimizeButton_Click(object sender, RoutedEventArgs args) =>
+        WindowState = WindowState.Minimized;
+
+    private void MaximizeRestoreButton_Click(object sender, RoutedEventArgs args) =>
+        ToggleMaximizeRestore();
+
+    private void CloseButton_Click(object sender, RoutedEventArgs args) => Close();
+
+    private void OnWindowStateChanged(object? sender, EventArgs args) => UpdateMaximizeRestoreGlyph();
+
+    private void ToggleMaximizeRestore()
+    {
+        WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
+    }
+
+    private void RestoreForDrag(MouseButtonEventArgs args)
+    {
+        Point position = args.GetPosition(this);
+        double horizontalRatio = ActualWidth <= 0 ? 0.5 : position.X / ActualWidth;
+        Point screenPosition = PointToScreen(position);
+        PresentationSource? source = PresentationSource.FromVisual(this);
+        if (source?.CompositionTarget is not null)
+        {
+            screenPosition = source.CompositionTarget.TransformFromDevice.Transform(screenPosition);
+        }
+
+        double restoredWidth = RestoreBounds.Width > 0 ? RestoreBounds.Width : ActualWidth;
+
+        WindowState = WindowState.Normal;
+        Left = screenPosition.X - (restoredWidth * horizontalRatio);
+        Top = Math.Max(SystemParameters.VirtualScreenTop, screenPosition.Y - 18);
+    }
+
+    private void UpdateMaximizeRestoreGlyph()
+    {
+        MaximizeRestoreGlyph.Text = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs args)

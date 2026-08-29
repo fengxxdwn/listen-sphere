@@ -14,11 +14,14 @@ public enum PairingCodeValidation
 
 public sealed class PairingCodeService
 {
+    private const int MaximumFailedAttempts = 5;
+    private static readonly TimeSpan DefaultLifetime = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan RateLimitDuration = TimeSpan.FromMinutes(10);
     private readonly TimeProvider timeProvider;
     private readonly object sync = new();
+    private readonly Dictionary<string, PairingAttemptState> attemptsBySource =
+        new(StringComparer.Ordinal);
     private PairingCode? activeCode;
-    private int failedAttempts;
-    private DateTimeOffset blockedUntil;
 
     public PairingCodeService(TimeProvider? timeProvider = null)
     {
@@ -30,50 +33,103 @@ public sealed class PairingCodeService
         lock (sync)
         {
             DateTimeOffset now = timeProvider.GetUtcNow();
+            RemoveInactiveAttemptStates(now);
             activeCode = new PairingCode(
                 RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6"),
-                now.Add(lifetime ?? TimeSpan.FromMinutes(2)));
-            failedAttempts = 0;
-            blockedUntil = DateTimeOffset.MinValue;
+                now.Add(lifetime ?? DefaultLifetime));
             return activeCode;
         }
     }
 
-    public PairingCodeValidation ValidateAndConsume(string value)
+    public bool HasActiveCode
+    {
+        get
+        {
+            lock (sync)
+            {
+                ExpireCodeIfNeeded(timeProvider.GetUtcNow());
+                return activeCode is not null;
+            }
+        }
+    }
+
+    public void Cancel()
+    {
+        lock (sync)
+        {
+            activeCode = null;
+        }
+    }
+
+    public PairingCodeValidation ValidateAndConsume(
+        string value,
+        string rateLimitKey = "default")
     {
         lock (sync)
         {
             DateTimeOffset now = timeProvider.GetUtcNow();
-            if (now < blockedUntil)
+            string source = string.IsNullOrWhiteSpace(rateLimitKey)
+                ? "default"
+                : rateLimitKey.Trim();
+            if (attemptsBySource.TryGetValue(source, out PairingAttemptState? attempts) &&
+                now < attempts.BlockedUntil)
             {
                 return PairingCodeValidation.RateLimited;
             }
 
-            if (activeCode is null || now > activeCode.ExpiresAt)
+            ExpireCodeIfNeeded(now);
+            if (activeCode is null)
             {
-                activeCode = null;
                 return PairingCodeValidation.Expired;
             }
 
+            string submitted = value ?? string.Empty;
             bool matches = CryptographicOperations.FixedTimeEquals(
                 System.Text.Encoding.ASCII.GetBytes(activeCode.Value),
-                System.Text.Encoding.ASCII.GetBytes(value ?? string.Empty));
+                System.Text.Encoding.ASCII.GetBytes(submitted));
             if (matches)
             {
                 activeCode = null;
-                failedAttempts = 0;
+                attemptsBySource.Remove(source);
                 return PairingCodeValidation.Accepted;
             }
 
-            failedAttempts++;
-            if (failedAttempts >= 5)
+            attempts ??= new PairingAttemptState();
+            attempts.FailedAttempts++;
+            if (attempts.FailedAttempts >= MaximumFailedAttempts)
             {
-                activeCode = null;
-                blockedUntil = now.AddMinutes(10);
+                attempts.BlockedUntil = now.Add(RateLimitDuration);
+                attemptsBySource[source] = attempts;
                 return PairingCodeValidation.RateLimited;
             }
 
+            attemptsBySource[source] = attempts;
             return PairingCodeValidation.Invalid;
         }
+    }
+
+    private void ExpireCodeIfNeeded(DateTimeOffset now)
+    {
+        if (activeCode is not null && now >= activeCode.ExpiresAt)
+        {
+            activeCode = null;
+        }
+    }
+
+    private void RemoveInactiveAttemptStates(DateTimeOffset now)
+    {
+        foreach (string source in attemptsBySource
+                     .Where(item => item.Value.BlockedUntil <= now)
+                     .Select(item => item.Key)
+                     .ToArray())
+        {
+            attemptsBySource.Remove(source);
+        }
+    }
+
+    private sealed class PairingAttemptState
+    {
+        public int FailedAttempts { get; set; }
+        public DateTimeOffset BlockedUntil { get; set; }
     }
 }

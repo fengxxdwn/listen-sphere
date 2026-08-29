@@ -14,12 +14,20 @@ public sealed class WasapiPlaybackStoppedEventArgs(Exception? exception) : Event
 }
 
 /// <summary>Plays normalized PCM to a selected Windows endpoint in shared mode.</summary>
-public sealed class WasapiPlaybackSink(string deviceId) :
+public enum WasapiPlaybackProfile
+{
+    Standard,
+    BluetoothResilient
+}
+
+public sealed class WasapiPlaybackSink :
     IAudioPlaybackSink,
     IAudioPlaybackDiagnostics
 {
+    private readonly string deviceId;
+    private readonly WasapiPlaybackProfile profile;
     private readonly object gate = new();
-    private readonly AdaptivePlaybackController adaptiveBuffer = new();
+    private readonly AdaptivePlaybackController adaptiveBuffer;
     private MMDevice? device;
     private BufferedWaveProvider? buffer;
     private WasapiOut? output;
@@ -29,8 +37,22 @@ public sealed class WasapiPlaybackSink(string deviceId) :
     private long bufferOverflows;
     private long driftCorrections;
     private bool bufferWasLow = true;
+    private bool outputStarted;
     private double estimatedClockDriftPpm;
     private bool disposed;
+
+    public WasapiPlaybackSink(
+        string deviceId,
+        WasapiPlaybackProfile profile = WasapiPlaybackProfile.Standard)
+    {
+        this.deviceId = deviceId;
+        this.profile = profile;
+        adaptiveBuffer = profile == WasapiPlaybackProfile.BluetoothResilient
+            ? new AdaptivePlaybackController(targetMilliseconds: 100, toleranceMilliseconds: 80)
+            : new AdaptivePlaybackController();
+    }
+
+    public WasapiPlaybackProfile Profile => profile;
 
     public AudioFormat InputFormat => AudioFormat.Default;
     public event EventHandler<WasapiPlaybackStoppedEventArgs>? PlaybackStopped;
@@ -67,16 +89,23 @@ public sealed class WasapiPlaybackSink(string deviceId) :
             device = enumerator.GetDevice(deviceId);
             buffer = new BufferedWaveProvider(WaveFormat.CreateIeeeFloatWaveFormat(48_000, 2))
             {
-                BufferDuration = TimeSpan.FromMilliseconds(250),
+                BufferDuration = profile == WasapiPlaybackProfile.BluetoothResilient
+                    ? TimeSpan.FromMilliseconds(500)
+                    : TimeSpan.FromMilliseconds(250),
                 DiscardOnBufferOverflow = true,
                 ReadFully = true
             };
-            output = new WasapiOut(device, AudioClientShareMode.Shared, true, 40);
+            int deviceLatency = profile == WasapiPlaybackProfile.BluetoothResilient ? 100 : 40;
+            output = new WasapiOut(device, AudioClientShareMode.Shared, true, deviceLatency);
             output.PlaybackStopped += OnPlaybackStopped;
             output.Init(buffer);
-            output.Play();
             adaptiveBuffer.Reset();
-            playbackStartedAt = Stopwatch.GetTimestamp();
+            outputStarted = profile == WasapiPlaybackProfile.Standard;
+            if (outputStarted)
+            {
+                output.Play();
+                playbackStartedAt = Stopwatch.GetTimestamp();
+            }
             bufferWasLow = true;
         }
 
@@ -100,7 +129,9 @@ public sealed class WasapiPlaybackSink(string deviceId) :
 
             int bufferedMilliseconds =
                 checked((int)buffer.BufferedDuration.TotalMilliseconds);
-            BufferCorrection correction = adaptiveBuffer.EvaluateBuffer(bufferedMilliseconds);
+            BufferCorrection correction = outputStarted
+                ? adaptiveBuffer.EvaluateBuffer(bufferedMilliseconds)
+                : BufferCorrection.None;
             if (correction == BufferCorrection.DropFrame)
             {
                 bufferOverflows++;
@@ -128,9 +159,12 @@ public sealed class WasapiPlaybackSink(string deviceId) :
                 return ValueTask.CompletedTask;
             }
 
-            estimatedClockDriftPpm = adaptiveBuffer.ObserveClock(
-                frame.Timestamp,
-                Stopwatch.GetElapsedTime(playbackStartedAt));
+            if (outputStarted)
+            {
+                estimatedClockDriftPpm = adaptiveBuffer.ObserveClock(
+                    frame.Timestamp,
+                    Stopwatch.GetElapsedTime(playbackStartedAt));
+            }
             if (MemoryMarshal.TryGetArray(frame.Data, out var segment) &&
                 segment.Array is not null)
             {
@@ -151,6 +185,15 @@ public sealed class WasapiPlaybackSink(string deviceId) :
             }
 
             framesWritten++;
+            if (!outputStarted &&
+                buffer.BufferedDuration >= TimeSpan.FromMilliseconds(100))
+            {
+                adaptiveBuffer.Reset();
+                playbackStartedAt = Stopwatch.GetTimestamp();
+                output!.Play();
+                outputStarted = true;
+                bufferWasLow = false;
+            }
         }
 
         return ValueTask.CompletedTask;
@@ -169,6 +212,7 @@ public sealed class WasapiPlaybackSink(string deviceId) :
             }
             output = null;
             buffer = null;
+            outputStarted = false;
             adaptiveBuffer.Reset();
             device?.Dispose();
             device = null;

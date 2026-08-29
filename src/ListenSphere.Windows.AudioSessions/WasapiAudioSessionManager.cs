@@ -7,7 +7,7 @@ namespace ListenSphere.Windows.AudioSessions;
 /// <summary>NAudio-based implementation for the default Windows render endpoint.</summary>
 public sealed class WasapiAudioSessionManager : IWindowsAudioSessionManager
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(100);
     private readonly object gate = new();
     private CancellationTokenSource? monitorLifetime;
     private Task? monitorTask;

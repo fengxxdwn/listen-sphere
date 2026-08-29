@@ -5,7 +5,7 @@
 ListenSphere Protocol 是与语言和平台无关的局域网协议。v1 包含发现、控制、配对和音频数据报规范。
 
 - Protobuf 包：`listensphere.protocol.v1`
-- 当前版本：`1.0`
+- 当前版本：`1.1`
 - Major 不一致：立即拒绝并返回 `INCOMPATIBLE_VERSION`
 - Major 相同、Minor 不同：保留未知字段，通过能力位协商
 - 删除 Protobuf 字段后必须同时保留字段编号和名称
@@ -46,6 +46,8 @@ TXT 不发布验证码、IP、证书私钥、会话密钥或应用列表。高�
 
 P4 的 `StartStream` 由 Controller 在设备认证完成后发送，包含随机 SessionId、非零 StreamId、AES-256-GCM 临时密钥、4 字节 salt、UDP 端口和固定音频格式。密钥只存在于当前 TLS 连接及内存中；控制连接断开、设备撤销或流重启时立即作废。
 
+从 v1.1 起，认证后的 Sender 可通过 `OpenAudioStream` 为每个应用或系统捕获源声明独立逻辑声道。Controller 返回 `AudioStreamOpened`，其中包含稳定 `channel_id` 和该声道独享的 `StartStream` 会话；`CloseAudioStream` 只关闭指定声道，不断开设备控制连接。一个应用的多进程可以在 Sender 内部先混合，但不同应用不得在发送前混成同一流。旧版 Sender 仍可继续使用认证后自动下发的默认单流。
+
 v1 控制序列：
 
 1. Sender 完成 TLS 1.3 握手后首先发送 `HelloRequest`，身份中的证书指纹必须与 TLS 客户端证书一致。
@@ -53,14 +55,15 @@ v1 控制序列：
 3. 未受信任设备发送 `PairRequest`；成功后 Controller 返回包含自身身份的 `PairResponse`。
 4. 已认证连接每 2 秒发送 `Heartbeat`，对端以相同 `request_id` 返回 `HeartbeatAck`。
 5. 正常退出或协议错误使用 `Disconnect`；传输中断则直接进入离线状态。
+6. 需要应用级调音时，Sender 为每个来源发送 `OpenAudioStream`；停止捕获时发送 `CloseAudioStream`。Controller 以“设备 UUID + source_id”派生稳定声道身份，并在设备级断连或撤销时关闭其全部子声道。
 
-`Envelope` 当前字段编号 10–18 已进入兼容性约束；删除消息字段时必须在 Protobuf 中 `reserved`，不得复用编号。
+`Envelope` 当前字段编号 10–21 已进入兼容性约束；删除消息字段时必须在 Protobuf 中 `reserved`，不得复用编号。
 
 ## 4. 配对
 
 1. 主控端首次运行生成 TLS 身份和稳定设备 UUID。
 2. 发送端通过 mDNS 找到主控端并建立临时 TLS 连接；此时只允许配对消息。
-3. 主控端生成六位十进制验证码，显示 120 秒；同一来源最多连续失败 5 次，随后冷却 10 分钟。
+3. 主控端生成六位十进制验证码，显示 5 分钟；同一来源最多连续失败 5 次，随后冷却 10 分钟。
 4. 用户在发送端输入验证码。
 5. `PairRequest` 携带发送端身份、公钥指纹、32 字节随机数和验证码。
 6. 主控端原子地消费验证码，记录设备 UUID 与指纹，返回控制端随机数。

@@ -9,7 +9,7 @@
 - Sender 持续执行 mDNS 查询，按设备 UUID 去重并显示 Controller。
 - 控制通道使用 TCP、TLS 1.3、双向自签名设备证书和 Protobuf。
 - 控制消息使用 32 位大端长度前缀，单消息上限 1 MiB。
-- 首次配对采用六位单次验证码；有效期 2 分钟，连续失败 5 次后限制 10 分钟。
+- 首次配对采用六位单次验证码；有效期 5 分钟，连续失败 5 次后限制 10 分钟。
 - 配对绑定设备 UUID、TLS 证书 SHA-256 指纹和双方随机数。
 - 双方将信任记录保存到 `%LocalAppData%\ListenSphere\<Role>`。
 - 后续连接必须匹配固定证书指纹；Sender 发现已信任 Controller 后自动连接。

@@ -13,7 +13,11 @@ public sealed record RemoteMixerStatistics(
 /// <summary>
 /// Aligns independent remote streams to a fixed playback clock and mixes Float32 PCM.
 /// </summary>
-public sealed class RemotePcmMixer(int frameBytes, int startupFrames = 2, int maximumFrames = 12)
+public sealed class RemotePcmMixer(
+    int frameBytes,
+    int startupFrames = 2,
+    int maximumFrames = 12,
+    bool hardClipOutput = true)
 {
     private readonly object gate = new();
     private readonly Dictionary<Guid, StreamBuffer> streams = [];
@@ -39,12 +43,29 @@ public sealed class RemotePcmMixer(int frameBytes, int startupFrames = 2, int ma
         }
     }
 
-    public void RegisterStream(Guid sessionId)
+    public void RegisterStream(Guid sessionId, int? preferredStartupFrames = null)
     {
         ArgumentOutOfRangeException.ThrowIfEqual(sessionId, Guid.Empty);
+        int requestedStartup = Math.Clamp(
+            preferredStartupFrames ?? startupFrames,
+            1,
+            maximumFrames);
         lock (gate)
         {
-            streams.TryAdd(sessionId, new StreamBuffer());
+            if (streams.TryGetValue(sessionId, out StreamBuffer? existing))
+            {
+                if (requestedStartup > existing.StartupFrames)
+                {
+                    existing.StartupFrames = requestedStartup;
+                    if (existing.Frames.Count < requestedStartup)
+                    {
+                        existing.Started = false;
+                    }
+                }
+                return;
+            }
+
+            streams.Add(sessionId, new StreamBuffer(requestedStartup));
         }
     }
 
@@ -68,7 +89,7 @@ public sealed class RemotePcmMixer(int frameBytes, int startupFrames = 2, int ma
         {
             if (!streams.TryGetValue(sessionId, out StreamBuffer? stream))
             {
-                stream = new StreamBuffer();
+                stream = new StreamBuffer(startupFrames);
                 streams.Add(sessionId, stream);
             }
 
@@ -79,7 +100,7 @@ public sealed class RemotePcmMixer(int frameBytes, int startupFrames = 2, int ma
             }
 
             stream.Frames.Enqueue(pcm);
-            if (!stream.Started && stream.Frames.Count >= startupFrames)
+            if (!stream.Started && stream.Frames.Count >= stream.StartupFrames)
             {
                 stream.Started = true;
             }
@@ -108,6 +129,10 @@ public sealed class RemotePcmMixer(int frameBytes, int startupFrames = 2, int ma
                 if (!stream.Frames.TryDequeue(out byte[]? frame))
                 {
                     streamUnderflows++;
+                    // Once Bluetooth/RFCOMM jitter drains the queue, wait for a fresh
+                    // startup cushion instead of alternating one frame of audio with
+                    // one frame of silence indefinitely.
+                    stream.Started = false;
                     continue;
                 }
 
@@ -129,13 +154,19 @@ public sealed class RemotePcmMixer(int frameBytes, int startupFrames = 2, int ma
             {
                 if (mixed[index] > 1f)
                 {
-                    mixed[index] = 1f;
                     clippedSamples++;
+                    if (hardClipOutput)
+                    {
+                        mixed[index] = 1f;
+                    }
                 }
                 else if (mixed[index] < -1f)
                 {
-                    mixed[index] = -1f;
                     clippedSamples++;
+                    if (hardClipOutput)
+                    {
+                        mixed[index] = -1f;
+                    }
                 }
             }
 
@@ -144,9 +175,10 @@ public sealed class RemotePcmMixer(int frameBytes, int startupFrames = 2, int ma
         }
     }
 
-    private sealed class StreamBuffer
+    private sealed class StreamBuffer(int startupFrames)
     {
         public Queue<byte[]> Frames { get; } = [];
+        public int StartupFrames { get; set; } = startupFrames;
         public bool Started { get; set; }
     }
 }

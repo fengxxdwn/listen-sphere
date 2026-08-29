@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>ListenSphere.Windows.Bluetooth</AssemblyName>
+    <Description>ListenSphere Windows Bluetooth Classic/RFCOMM adapter.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="InTheHand.Net.Bluetooth" />
+    <PackageReference Include="NAudio" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ListenSphere.Audio.Engine\ListenSphere.Audio.Engine.csproj" />
+    <ProjectReference Include="..\ListenSphere.Device\ListenSphere.Device.csproj" />
+    <ProjectReference Include="..\ListenSphere.Network\ListenSphere.Network.csproj" />
+    <ProjectReference Include="..\ListenSphere.Protocol\ListenSphere.Protocol.csproj" />
+  </ItemGroup>
+</Project>

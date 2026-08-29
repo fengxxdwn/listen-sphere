@@ -85,7 +85,7 @@ public sealed class UdpAudioTransportTests
     }
 
     [Fact]
-    public void JitterBuffer_InsertsSilenceForAFrameMissingBeyondTarget()
+    public void JitterBuffer_AdaptsToMissingFrameAndRecoversAfterStableTraffic()
     {
         var session = new AudioSessionParameters(
             Guid.NewGuid(),
@@ -97,17 +97,34 @@ public sealed class UdpAudioTransportTests
 
         Assert.Empty(jitter.Push(CreateFrame(session, 0)));
         Assert.Empty(jitter.Push(CreateFrame(session, 2)));
-        IReadOnlyList<NetworkAudioFrame> first = jitter.Push(CreateFrame(session, 3));
-        IReadOnlyList<NetworkAudioFrame> second = jitter.Push(CreateFrame(session, 4));
+        var emitted = new List<NetworkAudioFrame>();
+        for (uint sequence = 3; sequence < 12; sequence++)
+        {
+            emitted.AddRange(jitter.Push(CreateFrame(session, sequence)));
+        }
 
-        Assert.Single(first);
-        Assert.Equal(0U, first[0].FrameSequence);
-        Assert.Equal(2, second.Count);
-        Assert.Equal(1U, second[0].FrameSequence);
-        Assert.True(second[0].IsConcealment);
-        Assert.All(second[0].Pcm, value => Assert.Equal(0, value));
-        Assert.Equal(2U, second[1].FrameSequence);
-        Assert.False(second[1].IsConcealment);
+        NetworkAudioFrame concealment = Assert.Single(
+            emitted,
+            frame => frame.FrameSequence == 1);
+        Assert.True(concealment.IsConcealment);
+        Assert.All(concealment.Pcm, value => Assert.Equal(0, value));
+        Assert.Contains(emitted, frame =>
+            frame.FrameSequence == 2 && !frame.IsConcealment);
+
+        AudioJitterBufferStatistics raised = jitter.Statistics;
+        Assert.InRange(raised.TargetFrames, 4, 12);
+        Assert.True(raised.TargetIncreases > 0);
+
+        int raisedTarget = raised.TargetFrames;
+        for (uint sequence = 12; sequence < 650; sequence++)
+        {
+            jitter.Push(CreateFrame(session, sequence));
+        }
+
+        AudioJitterBufferStatistics recovered = jitter.Statistics;
+        Assert.InRange(recovered.TargetFrames, 3, 12);
+        Assert.True(recovered.TargetFrames < raisedTarget);
+        Assert.True(recovered.TargetDecreases > 0);
     }
 
     [Fact]

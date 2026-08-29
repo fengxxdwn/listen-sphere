@@ -1,10 +1,12 @@
 using System.IO;
 using System.Windows;
 using ListenSphere.Audio.Abstractions;
+using ListenSphere.Configuration;
 using ListenSphere.Device;
 using ListenSphere.Diagnostics;
 using ListenSphere.Network;
 using ListenSphere.Windows.Audio;
+using ListenSphere.Windows.AudioSessions;
 using ListenSphere.Windows.Devices;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
@@ -29,6 +31,8 @@ public partial class App : Application
             DeviceCapabilities.AudioSend | DeviceCapabilities.RemoteControl);
         var trustStore = new JsonTrustedDeviceStore(
             Path.Combine(dataDirectory, "trusted-devices.json"));
+        var settingsStore = new JsonSettingsStore(
+            Path.Combine(dataDirectory, "settings.json"));
         var diagnosticService = new DiagnosticArchiveService(
             Path.Combine(dataDirectory, "logs"));
         Log.Logger = new LoggerConfiguration()
@@ -43,6 +47,7 @@ public partial class App : Application
         serviceProvider = new ServiceCollection()
             .AddSingleton(localIdentity)
             .AddSingleton<ITrustedDeviceStore>(trustStore)
+            .AddSingleton<ISettingsStore>(settingsStore)
             .AddSingleton(diagnosticService)
             .AddSingleton<IDiscoveryService, MdnsDiscoveryService>()
             .AddSingleton<ListenSphereControlClient>()
@@ -50,6 +55,8 @@ public partial class App : Application
             .AddSingleton<IAudioDeviceManager, WasapiAudioDeviceManager>()
             .AddSingleton<IWindowsDeviceNotificationSource, WasapiDeviceNotificationSource>()
             .AddSingleton<IWasapiCaptureSourceFactory, WasapiCaptureSourceFactory>()
+            .AddSingleton<IProcessLoopbackCaptureSourceFactory, ProcessLoopbackCaptureSourceFactory>()
+            .AddSingleton<IWindowsAudioSessionManager, WasapiAudioSessionManager>()
             .AddSingleton<ITestTonePlayer, TestTonePlayer>()
             .AddSingleton<IDebugWaveRecorder, DebugWaveRecorder>()
             .AddSingleton<SenderViewModel>()

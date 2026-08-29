@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">聆界</string>
+    <string name="stream_channel_name">声音发送</string>
+    <string name="stream_channel_description">保持手机音频发送到聆界主控端</string>
+</resources>

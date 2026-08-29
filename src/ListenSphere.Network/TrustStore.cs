@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ListenSphere.Network;
 
@@ -9,7 +10,18 @@ public sealed record TrustedDevice(
     ulong Capabilities,
     string CertificateFingerprint,
     DateTimeOffset PairedAt,
-    DateTimeOffset LastSeen);
+    DateTimeOffset LastSeen,
+    string Transport = "Wireless",
+    string[]? Transports = null)
+{
+    [JsonIgnore]
+    public IReadOnlyList<string> ObservedTransports =>
+        Transports is { Length: > 0 } ? Transports : [Transport];
+
+    public bool SupportsTransport(string transport) => ObservedTransports.Contains(
+        transport,
+        StringComparer.OrdinalIgnoreCase);
+}
 
 public interface ITrustedDeviceStore
 {
@@ -70,6 +82,34 @@ public sealed class JsonTrustedDeviceStore : ITrustedDeviceStore
         {
             List<TrustedDevice> devices = await ReadUnsafeAsync(cancellationToken)
                 .ConfigureAwait(false);
+            TrustedDevice? existing = devices.FirstOrDefault(
+                candidate => candidate.DeviceId == device.DeviceId);
+            if (existing is not null && string.Equals(
+                    existing.CertificateFingerprint,
+                    device.CertificateFingerprint,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                string[] transports = existing.ObservedTransports
+                    .Concat(device.ObservedTransports)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(transport => transport, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                device = device with
+                {
+                    PairedAt = existing.PairedAt,
+                    Transports = transports
+                };
+            }
+            else
+            {
+                device = device with
+                {
+                    Transports = device.ObservedTransports
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray()
+                };
+            }
+
             devices.RemoveAll(candidate => candidate.DeviceId == device.DeviceId);
             devices.Add(device);
             await WriteUnsafeAsync(devices, cancellationToken).ConfigureAwait(false);

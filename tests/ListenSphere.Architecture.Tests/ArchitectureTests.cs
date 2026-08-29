@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Xml.Linq;
 using ListenSphere.Audio.Abstractions;
 using ListenSphere.Audio.Engine;
 using ListenSphere.Configuration;
@@ -48,5 +49,31 @@ public sealed class ArchitectureTests
                     prefix => reference.StartsWith(prefix, StringComparison.Ordinal));
             }
         }
+    }
+
+    [Fact]
+    public void ControllerXaml_DoesNotApplyButtonOnlyStyleToToggleButtons()
+    {
+        string? repository = AppContext.BaseDirectory;
+        while (repository is not null &&
+               !File.Exists(Path.Combine(repository, "ListenSphere.sln")))
+        {
+            repository = Directory.GetParent(repository)?.FullName;
+        }
+
+        Assert.NotNull(repository);
+        XDocument document = XDocument.Load(Path.Combine(
+            repository,
+            "apps",
+            "ListenSphere.Controller",
+            "MainWindow.xaml"));
+        IEnumerable<XElement> toggleButtons = document.Descendants()
+            .Where(element => element.Name.LocalName == "ToggleButton");
+
+        Assert.DoesNotContain(toggleButtons, element =>
+            string.Equals(
+                element.Attribute("Style")?.Value,
+                "{StaticResource IconButton}",
+                StringComparison.Ordinal));
     }
 }

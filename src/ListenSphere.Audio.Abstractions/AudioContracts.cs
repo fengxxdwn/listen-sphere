@@ -83,6 +83,8 @@ public interface IAudioDeviceManager
 {
     ValueTask<IReadOnlyList<IAudioDevice>> GetPlaybackDevicesAsync(
         CancellationToken cancellationToken);
+    ValueTask<IReadOnlyList<IAudioDevice>> GetRecordingDevicesAsync(
+        CancellationToken cancellationToken);
 }
 
 /// <summary>Reads and controls the master volume of a platform playback endpoint.</summary>
@@ -93,6 +95,8 @@ public interface IAudioOutputVolumeController
         string deviceId,
         float volume,
         CancellationToken cancellationToken);
+    ValueTask<bool> GetMuteAsync(string deviceId, CancellationToken cancellationToken);
+    ValueTask SetMuteAsync(string deviceId, bool isMuted, CancellationToken cancellationToken);
 }
 
 /// <summary>Converts PCM between negotiated input and output formats.</summary>

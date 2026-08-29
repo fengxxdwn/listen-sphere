@@ -71,15 +71,56 @@ public sealed class CoreContractTests
             PlaybackDeviceId = "endpoint-1",
             FollowSystemDefaultPlayback = false,
             MasterVolume = 0.65f,
+            LocalSourceVolume = 1.5f,
+            LocalSourceMuted = true,
             FirstRunCompleted = true,
+            SenderSelectedApplicationKeys = [@"C:\Apps\Game.exe", @"c:\apps\game.exe", "  Discord  "],
+            SenderCaptureMode = "system",
+            SenderCaptureDeviceId = "  endpoint-sender  ",
+            MicrophoneOutputDeviceId = "  cable-input  ",
+            MicrophoneOutputVolume = 1.5f,
+            MicrophoneOutputMuted = true,
+            MicrophoneMonitoringEnabled = true,
+            MicrophoneMonitoringDeviceId = "  speaker-monitor  ",
+            AutomaticRoutingEnabled = true,
+            AudioRoutingRules =
+            [
+                new AudioRoutingRuleSettings(
+                    Guid.NewGuid(),
+                    "  Discord 语音  ",
+                    "  Discord  ",
+                    "  语音  ",
+                    SourceKind: "  application  ",
+                    Priority: 1200)
+            ],
+            ChannelLayouts =
+            [
+                new ChannelLayoutSettings(channelId, true, 25_000),
+                new ChannelLayoutSettings(channelId, false, 1)
+            ],
+            AudioOutputRoutes =
+            [
+                new AudioOutputRouteSettings(channelId, "  endpoint-secondary  "),
+                new AudioOutputRouteSettings(channelId, "endpoint-secondary")
+            ],
             Scenes =
             [
                 new SceneSettings(
                     Guid.NewGuid(),
                     "游戏",
-                    [new ChannelSettings(channelId, "副电脑", 0.4f, true)],
+                    [new ChannelSettings(
+                        channelId,
+                        "副电脑",
+                        0.4f,
+                        true,
+                        "语音清晰",
+                        [-6, -4, -2, -1, 0, 2, 4, 3, 1, -1],
+                        false,
+                        "语音")],
                     "endpoint-1",
-                    0.65f)
+                    0.65f,
+                    false,
+                    [new GroupBusSettings("语音", 0.7f, true, "语音清晰")])
             ]
         };
 
@@ -93,10 +134,45 @@ public sealed class CoreContractTests
             Assert.Equal(expected.PlaybackDeviceId, actual.PlaybackDeviceId);
             Assert.False(actual.FollowSystemDefaultPlayback);
             Assert.Equal(expected.MasterVolume, actual.MasterVolume);
+            Assert.Equal(1f, actual.LocalSourceVolume);
+            Assert.True(actual.LocalSourceMuted);
             Assert.True(actual.FirstRunCompleted);
+            Assert.Equal([@"C:\Apps\Game.exe", "Discord"], actual.SenderSelectedApplicationKeys);
+            Assert.Equal("system", actual.SenderCaptureMode);
+            Assert.Equal("endpoint-sender", actual.SenderCaptureDeviceId);
+            Assert.Equal("cable-input", actual.MicrophoneOutputDeviceId);
+            Assert.Equal(1f, actual.MicrophoneOutputVolume);
+            Assert.True(actual.MicrophoneOutputMuted);
+            Assert.True(actual.MicrophoneMonitoringEnabled);
+            Assert.Equal("speaker-monitor", actual.MicrophoneMonitoringDeviceId);
+            Assert.True(actual.AutomaticRoutingEnabled);
+            AudioRoutingRuleSettings route = Assert.Single(actual.AudioRoutingRules);
+            Assert.Equal("Discord 语音", route.Name);
+            Assert.Equal("Discord", route.SourcePattern);
+            Assert.Equal("语音", route.TargetGroup);
+            Assert.Equal("application", route.SourceKind);
+            Assert.Equal(1000, route.Priority);
+            ChannelLayoutSettings layout = Assert.Single(actual.ChannelLayouts);
+            Assert.Equal(channelId, layout.ChannelId);
+            Assert.True(layout.IsPinned);
+            Assert.Equal(10_000, layout.SortOrder);
+            AudioOutputRouteSettings outputRoute = Assert.Single(actual.AudioOutputRoutes);
+            Assert.Equal(channelId, outputRoute.ChannelId);
+            Assert.Equal("endpoint-secondary", outputRoute.DeviceId);
             SceneSettings scene = Assert.Single(actual.Scenes);
             Assert.Equal("游戏", scene.Name);
-            Assert.Equal(channelId, Assert.Single(scene.Channels).ChannelId);
+            ChannelSettings channel = Assert.Single(scene.Channels);
+            Assert.Equal(channelId, channel.ChannelId);
+            Assert.Equal("语音清晰", channel.EqualizerPreset);
+            float[] gains = Assert.IsType<float[]>(channel.EqualizerGains);
+            Assert.Equal([-6f, -4f, -2f, -1f, 0f, 2f, 4f, 3f, 1f, -1f], gains);
+            Assert.False(channel.EqualizerEnabled);
+            Assert.Equal("语音", channel.ChannelGroup);
+            GroupBusSettings group = Assert.Single(scene.GroupBuses!);
+            Assert.Equal("语音", group.Name);
+            Assert.Equal(0.7f, group.Volume);
+            Assert.True(group.IsMuted);
+            Assert.Equal("语音清晰", group.EqualizerPreset);
             Assert.Empty(Directory.GetFiles(directory, "*.tmp"));
         }
         finally
@@ -106,6 +182,30 @@ public sealed class CoreContractTests
                 Directory.Delete(directory, true);
             }
         }
+    }
+
+    [Fact]
+    public void AudioRoutingRules_SelectHighestPriorityCompatibleRule()
+    {
+        AudioRoutingRuleSettings[] rules =
+        [
+            new(Guid.NewGuid(), "浏览器媒体", "chrome", "媒体",
+                AudioRouteMatchMode.Contains, Priority: 100),
+            new(Guid.NewGuid(), "精确语音", "Chrome", "语音",
+                AudioRouteMatchMode.Exact, SourceKind: "application", Priority: 900),
+            new(Guid.NewGuid(), "蓝牙专用", "Chrome", "系统",
+                AudioRouteMatchMode.Exact, Transport: "Bluetooth", Priority: 1000),
+            new(Guid.NewGuid(), "已禁用", "Chrome", "自定义",
+                Priority: 1000, IsEnabled: false)
+        ];
+
+        AudioRoutingRuleSettings? matched = AudioRoutingRuleEvaluator.Match(
+            rules,
+            new AudioRoutingContext("chrome", "Application", "Wireless"));
+
+        Assert.NotNull(matched);
+        Assert.Equal("精确语音", matched.Name);
+        Assert.Equal("语音", matched.TargetGroup);
     }
 
     [Fact]
@@ -185,6 +285,90 @@ public sealed class CoreContractTests
     }
 
     [Fact]
+    public void MasterSoftLimiter_PreservesSafeSamplesAndSoftLimitsMixedPeaks()
+    {
+        const int sampleCount = 8;
+        var mixer = new RemotePcmMixer(
+            sampleCount * sizeof(float),
+            hardClipOutput: false);
+        Guid first = Guid.NewGuid();
+        Guid second = Guid.NewGuid();
+        mixer.RegisterStream(first);
+        mixer.RegisterStream(second);
+        for (int index = 0; index < 2; index++)
+        {
+            mixer.Enqueue(first, CreateFloatFrame(sampleCount, 0.6f));
+            mixer.Enqueue(second, CreateFloatFrame(sampleCount, 0.5f));
+        }
+        var output = new byte[sampleCount * sizeof(float)];
+
+        Assert.True(mixer.TryMixNext(output));
+        Span<float> mixed = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(output.AsSpan());
+        Assert.All(mixed.ToArray(), sample => Assert.Equal(1.1f, sample, 3));
+
+        var limiter = new MasterSoftLimiter();
+        limiter.Process(output);
+
+        Assert.All(mixed.ToArray(), sample => Assert.InRange(sample, 0.9f, 0.98f));
+        Assert.Equal(sampleCount, limiter.Statistics.LimitedSamples);
+        Assert.InRange(limiter.Statistics.MaximumInputPeak, 1.099f, 1.101f);
+
+        float[] safe = [0.5f, -0.75f];
+        limiter.Process(System.Runtime.InteropServices.MemoryMarshal.AsBytes(safe.AsSpan()));
+        Assert.Equal([0.5f, -0.75f], safe);
+        Assert.Throws<ArgumentException>(() => limiter.Process(new byte[3]));
+    }
+
+    [Fact]
+    public void RemotePcmMixer_RebuffersAfterStreamUnderflow()
+    {
+        const int sampleCount = 8;
+        var mixer = new RemotePcmMixer(
+            sampleCount * sizeof(float),
+            startupFrames: 2,
+            maximumFrames: 8);
+        Guid stream = Guid.NewGuid();
+        byte[] frame = CreateFloatFrame(sampleCount, 0.25f);
+        var output = new byte[sampleCount * sizeof(float)];
+        mixer.RegisterStream(stream);
+        mixer.Enqueue(stream, frame.ToArray());
+        mixer.Enqueue(stream, frame.ToArray());
+
+        Assert.True(mixer.TryMixNext(output));
+        Assert.True(mixer.TryMixNext(output));
+        Assert.False(mixer.TryMixNext(output));
+        Assert.Equal(1, mixer.Statistics.StreamUnderflows);
+
+        mixer.Enqueue(stream, frame.ToArray());
+        Assert.False(mixer.TryMixNext(output));
+        mixer.Enqueue(stream, frame.ToArray());
+        Assert.True(mixer.TryMixNext(output));
+    }
+
+    [Fact]
+    public void RemotePcmMixer_AppliesPerStreamBluetoothStartupBuffer()
+    {
+        const int sampleCount = 8;
+        var mixer = new RemotePcmMixer(
+            sampleCount * sizeof(float),
+            startupFrames: 2,
+            maximumFrames: 8);
+        Guid stream = Guid.NewGuid();
+        byte[] frame = CreateFloatFrame(sampleCount, 0.25f);
+        var output = new byte[sampleCount * sizeof(float)];
+        mixer.RegisterStream(stream, preferredStartupFrames: 4);
+
+        for (int index = 0; index < 3; index++)
+        {
+            mixer.Enqueue(stream, frame.ToArray());
+            Assert.False(mixer.TryMixNext(output));
+        }
+
+        mixer.Enqueue(stream, frame.ToArray());
+        Assert.True(mixer.TryMixNext(output));
+    }
+
+    [Fact]
     public async Task DiagnosticsArchive_FiltersSecretsAndContainsExpectedEntries()
     {
         string directory = Path.Combine(
@@ -246,6 +430,157 @@ public sealed class CoreContractTests
         Assert.False(level.IsClipping);
         Assert.True(clipping.IsClipping);
         Assert.Equal(AudioLevel.Silence, AudioLevelCalculator.Calculate([]));
+    }
+
+    [Fact]
+    public void ThreeBandEqualizer_AppliesBassGainAndKeepsSamplesBounded()
+    {
+        float[] samples = new float[4_800];
+        for (int frame = 0; frame < samples.Length / 2; frame++)
+        {
+            float value = 0.15f * MathF.Sin(2 * MathF.PI * 100 * frame / 48_000);
+            samples[frame * 2] = value;
+            samples[(frame * 2) + 1] = value;
+        }
+
+        float originalRms = AudioLevelCalculator.Calculate(samples).Rms;
+        new ThreeBandEqualizer().Process(samples, 9, 0, 0);
+        AudioLevel processed = AudioLevelCalculator.Calculate(samples);
+
+        Assert.True(processed.Rms > originalRms);
+        Assert.All(samples, sample => Assert.InRange(sample, -1f, 1f));
+    }
+
+    [Fact]
+    public void GraphicEqualizer_AppliesTenBandGainAndKeepsSamplesBounded()
+    {
+        float[] samples = new float[9_600];
+        for (int frame = 0; frame < samples.Length / 2; frame++)
+        {
+            float value = 0.1f * MathF.Sin(2 * MathF.PI * 1_000 * frame / 48_000);
+            samples[frame * 2] = value;
+            samples[(frame * 2) + 1] = value;
+        }
+        float originalRms = AudioLevelCalculator.Calculate(samples).Rms;
+        float[] gains = new float[10];
+        gains[5] = 12;
+
+        new GraphicEqualizer().Process(samples, gains);
+
+        Assert.True(AudioLevelCalculator.Calculate(samples).Rms > originalRms);
+        Assert.All(samples, sample => Assert.InRange(sample, -1f, 1f));
+    }
+
+    [Fact]
+    public void ChannelDynamics_AppliesGateCompressionAndLimiterInOrder()
+    {
+        var processor = new ChannelDynamicsProcessor();
+        float[] quiet = Enumerable.Repeat(0.001f, 960).ToArray();
+        var settings = new ChannelDynamicsSettings(
+            PreampDb: 6,
+            NoiseGateEnabled: true,
+            NoiseGateThresholdDb: -40,
+            CompressorEnabled: true,
+            CompressorThresholdDb: -18,
+            CompressorRatio: 6,
+            LimiterEnabled: true,
+            LimiterCeilingDb: -3);
+
+        ChannelDynamicsResult gated = processor.ProcessBeforeEqualizer(quiet, settings);
+        Assert.True(gated.GateClosed);
+        Assert.All(quiet, sample => Assert.InRange(MathF.Abs(sample), 0, 0.0005f));
+
+        processor.Reset();
+        float[] loud = Enumerable.Repeat(0.95f, 4_800).ToArray();
+        ChannelDynamicsResult compressed = processor.ProcessBeforeEqualizer(loud, settings);
+        Assert.True(compressed.GainReductionDb > 1);
+        loud.AsSpan().Fill(1.2f);
+        ChannelDynamicsResult limited = processor.ApplyLimiter(loud, settings, compressed);
+        float ceiling = MathF.Pow(10f, -3f / 20f);
+        Assert.True(limited.Limited);
+        Assert.All(loud, sample => Assert.InRange(MathF.Abs(sample), 0, ceiling + 0.0001f));
+    }
+
+    [Fact]
+    public void VoiceDucking_ActivatesForVoiceAndReturnsAttenuatedGain()
+    {
+        var ducking = new VoiceDuckingController(
+            voiceThresholdDb: -45,
+            holdMilliseconds: 200,
+            attackMilliseconds: 1,
+            releaseMilliseconds: 20);
+        ducking.ObserveVoice(Enumerable.Repeat(0.2f, 960).ToArray());
+        Assert.True(ducking.IsVoiceActive);
+
+        _ = ducking.GetTargetGain(12);
+        Thread.Sleep(5);
+        float gain = ducking.GetTargetGain(12);
+        Assert.InRange(gain, 0.2f, 0.6f);
+    }
+
+    [Fact]
+    public async Task Settings_NormalizesStageThreeDynamicsParameters()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "ListenSphere.Tests", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            var store = new JsonSettingsStore(path);
+            Guid channelId = Guid.NewGuid();
+            await store.SaveAsync(
+                new ListenSphereSettings
+                {
+                    Scenes =
+                    [
+                        new SceneSettings(
+                            Guid.NewGuid(),
+                            "Dynamics",
+                            [new ChannelSettings(
+                                channelId,
+                                "Voice",
+                                1,
+                                false,
+                                PreampDb: 99,
+                                NoiseGateThresholdDb: -120,
+                                CompressorThresholdDb: 10,
+                                CompressorRatio: 99,
+                                LimiterCeilingDb: 4,
+                                VoiceDuckingReductionDb: 99)])
+                    ]
+                },
+                TestContext.Current.CancellationToken);
+
+            ListenSphereSettings loaded = await store.LoadAsync(TestContext.Current.CancellationToken);
+            ChannelSettings channel = Assert.Single(Assert.Single(loaded.Scenes).Channels);
+            Assert.Equal(12, channel.PreampDb);
+            Assert.Equal(-80, channel.NoiseGateThresholdDb);
+            Assert.Equal(0, channel.CompressorThresholdDb);
+            Assert.Equal(20, channel.CompressorRatio);
+            Assert.Equal(-0.1f, channel.LimiterCeilingDb);
+            Assert.Equal(30, channel.VoiceDuckingReductionDb);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void ImaAdpcm_RoundTripsFrameWithBoundedErrorAndFixedSize()
+    {
+        short[] source = new short[ImaAdpcmCodec.SamplesPerFrame];
+        for (int index = 0; index < source.Length; index++)
+            source[index] = (short)(12_000 * MathF.Sin(2 * MathF.PI * 440 * index / 48_000));
+        var encoded = new byte[ImaAdpcmCodec.EncodedBytesPerFrame];
+        var decoded = new short[ImaAdpcmCodec.SamplesPerFrame];
+
+        ImaAdpcmCodec.Encode(source, encoded);
+        ImaAdpcmCodec.Decode(encoded, decoded);
+
+        Assert.Equal(244, encoded.Length);
+        Assert.Equal(source[0], decoded[0]);
+        double meanError = source.Zip(decoded, (left, right) => Math.Abs(left - right)).Average();
+        Assert.InRange(meanError, 0, 1_500);
     }
 
     [Fact]

@@ -18,6 +18,7 @@
     <ProjectReference Include="../../src/ListenSphere.Diagnostics/ListenSphere.Diagnostics.csproj" />
     <ProjectReference Include="../../src/ListenSphere.Network/ListenSphere.Network.csproj" />
     <ProjectReference Include="../../src/ListenSphere.Windows.Audio/ListenSphere.Windows.Audio.csproj" />
+    <ProjectReference Include="../../src/ListenSphere.Windows.AudioSessions/ListenSphere.Windows.AudioSessions.csproj" />
     <ProjectReference Include="../../src/ListenSphere.Windows.Devices/ListenSphere.Windows.Devices.csproj" />
   </ItemGroup>
 </Project>

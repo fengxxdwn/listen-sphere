@@ -5,7 +5,7 @@ namespace ListenSphere.Protocol;
 public static class ProtocolConstants
 {
     public const ushort MajorVersion = 1;
-    public const ushort MinorVersion = 0;
+    public const ushort MinorVersion = 1;
 
     public static ProtocolVersion CurrentVersion =>
         new() { Major = MajorVersion, Minor = MinorVersion };

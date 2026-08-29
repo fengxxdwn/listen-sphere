@@ -1,46 +1,592 @@
 <Window x:Class="ListenSphere.Controller.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ListenSphere.Controller"
         Title="聆界 · ListenSphere Controller"
-        Width="1180"
-        Height="780"
-        MinWidth="940"
-        MinHeight="640"
+        Width="1240"
+        Height="820"
+        MinWidth="1020"
+        MinHeight="680"
         WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        BorderThickness="0"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         FontFamily="Microsoft YaHei UI"
-        Background="#F5F7FA">
+        Foreground="#E7ECF3"
+        Background="#0F131A">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="0"
+                      ResizeBorderThickness="6"
+                      GlassFrameThickness="0"
+                      CornerRadius="0"
+                      UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
     <Window.Resources>
+        <SolidColorBrush x:Key="BackgroundBrush" Color="#0F131A" />
+        <SolidColorBrush x:Key="SidebarBrush" Color="#10161F" />
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#171D26" />
+        <SolidColorBrush x:Key="SurfaceRaisedBrush" Color="#1C232E" />
+        <SolidColorBrush x:Key="SurfaceSubtleBrush" Color="#141B24" />
+        <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#1A2430" />
+        <SolidColorBrush x:Key="StrokeBrush" Color="#29313D" />
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#E7ECF3" />
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#8E99AA" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#4C78F0" />
+        <SolidColorBrush x:Key="SuccessBrush" Color="#45C392" />
+        <SolidColorBrush x:Key="WarningBrush" Color="#DDB25A" />
+        <SolidColorBrush x:Key="ErrorBrush" Color="#E06C75" />
+        <SolidColorBrush x:Key="MutedBrush" Color="#5E6878" />
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        </Style>
         <Style x:Key="Card" TargetType="Border">
-            <Setter Property="Background" Value="White" />
-            <Setter Property="BorderBrush" Value="#E4E9EF" />
+            <Setter Property="Background" Value="{StaticResource SurfaceSubtleBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="14" />
-            <Setter Property="Padding" Value="18" />
+            <Setter Property="CornerRadius" Value="11" />
+            <Setter Property="Padding" Value="14" />
+            <Style.Triggers>
+                <EventTrigger RoutedEvent="MouseEnter">
+                    <BeginStoryboard>
+                        <Storyboard>
+                            <ColorAnimation Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
+                                            To="#1A2430"
+                                            Duration="0:0:0.16">
+                                <ColorAnimation.EasingFunction>
+                                    <CubicEase EasingMode="EaseOut" />
+                                </ColorAnimation.EasingFunction>
+                            </ColorAnimation>
+                        </Storyboard>
+                    </BeginStoryboard>
+                </EventTrigger>
+                <EventTrigger RoutedEvent="MouseLeave">
+                    <BeginStoryboard>
+                        <Storyboard>
+                            <ColorAnimation Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
+                                            To="#141B24"
+                                            Duration="0:0:0.20">
+                                <ColorAnimation.EasingFunction>
+                                    <CubicEase EasingMode="EaseOut" />
+                                </ColorAnimation.EasingFunction>
+                            </ColorAnimation>
+                        </Storyboard>
+                    </BeginStoryboard>
+                </EventTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="SectionHeading" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        </Style>
+        <Style x:Key="EyebrowText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
         </Style>
         <Style TargetType="Button">
-            <Setter Property="Padding" Value="14,7" />
-            <Setter Property="Background" Value="#EDF2F7" />
-            <Setter Property="BorderBrush" Value="#D5DDE6" />
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="Padding" Value="13,7" />
+            <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
             <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder"
+                                Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.86" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.70" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.42" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Background" Value="#3768D9" />
+            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
             <Setter Property="Foreground" Value="White" />
-            <Setter Property="BorderBrush" Value="#3768D9" />
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Width" Value="38" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="ToolTipService.InitialShowDelay" Value="350" />
+            <Setter Property="ToolTipService.ShowDuration" Value="8000" />
+        </Style>
+        <Style x:Key="MuteToggleButton" TargetType="ToggleButton">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="ToolTipService.InitialShowDelay" Value="350" />
+            <Setter Property="ToolTipService.ShowDuration" Value="8000" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="ToggleBorder"
+                                Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ToggleBorder" Property="BorderBrush" Value="#5576A8" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ToggleBorder" Property="Opacity" Value="0.72" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ToggleBorder" Property="Background" Value="#25355B" />
+                                <Setter TargetName="ToggleBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ToggleBorder" Property="Background" Value="{StaticResource SurfaceBrush}" />
+                                <Setter TargetName="ToggleBorder" Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
+                                <Setter TargetName="ToggleBorder" Property="Opacity" Value="0.45" />
+                                <Setter Property="Cursor" Value="Arrow" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="FluentSwitchCheckBox" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Border x:Name="SwitchTrack" Width="32" Height="18"
+                                    Background="#293240" BorderBrush="{StaticResource StrokeBrush}"
+                                    BorderThickness="1" CornerRadius="9">
+                                <Ellipse x:Name="SwitchThumb" Width="12" Height="12" Margin="2"
+                                         HorizontalAlignment="Left" Fill="#AAB4C3" />
+                            </Border>
+                            <ContentPresenter Grid.Column="1" Margin="8,0,0,0"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="SwitchTrack" Property="Background" Value="#315FC5" />
+                                <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Right" />
+                                <Setter TargetName="SwitchThumb" Property="Fill" Value="White" />
+                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="#6F93D1" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
+                                <Setter Property="Cursor" Value="Arrow" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="IconText" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="WindowCaptionButton" TargetType="Button">
+            <Setter Property="Width" Value="46" />
+            <Setter Property="Height" Value="42" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#AAB4C3" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="CaptionBackground" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="CaptionBackground" Property="Background" Value="#252C36" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="CaptionBackground" Property="Background" Value="#303946" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="WindowCloseButton" TargetType="Button" BasedOn="{StaticResource WindowCaptionButton}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="CaptionBackground" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="CaptionBackground" Property="Background" Value="#C42B3A" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="CaptionBackground" Property="Background" Value="#A92330" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ToolTip">
+            <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="Placement" Value="Mouse" />
         </Style>
         <Style TargetType="Slider">
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
+        <Style TargetType="ProgressBar">
+            <Setter Property="Height" Value="6" />
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+            <Setter Property="Background" Value="#252D39" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style TargetType="ScrollBar">
+            <Setter Property="Width" Value="11" />
+            <Setter Property="MinWidth" Value="11" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#3A4658" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="{TemplateBinding Background}">
+                            <Track x:Name="PART_Track"
+                                   Margin="2,3"
+                                   Focusable="False"
+                                   IsDirectionReversed="True"
+                                   Orientation="{TemplateBinding Orientation}">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Background="Transparent"
+                                                  BorderThickness="0"
+                                                  Command="ScrollBar.PageUpCommand"
+                                                  Focusable="False"
+                                                  Opacity="0" />
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb MinHeight="34"
+                                           Background="{TemplateBinding Foreground}">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border x:Name="ThumbSurface"
+                                                        Background="{TemplateBinding Background}"
+                                                        CornerRadius="4" />
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="ThumbSurface" Property="Background" Value="#56657A" />
+                                                    </Trigger>
+                                                    <Trigger Property="IsDragging" Value="True">
+                                                        <Setter TargetName="ThumbSurface" Property="Background" Value="{StaticResource AccentBrush}" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Background="Transparent"
+                                                  BorderThickness="0"
+                                                  Command="ScrollBar.PageDownCommand"
+                                                  Focusable="False"
+                                                  Opacity="0" />
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Orientation" Value="Horizontal">
+                                <Setter Property="Width" Value="Auto" />
+                                <Setter Property="MinWidth" Value="0" />
+                                <Setter Property="Height" Value="11" />
+                                <Setter Property="MinHeight" Value="11" />
+                                <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False" />
+                                <Setter TargetName="PART_Track" Property="Margin" Value="3,2" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="ScrollViewer.CanContentScroll" Value="True" />
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
+                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+                        <Setter Property="Padding" Value="10,7" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ComboBoxItem">
+                                    <Border x:Name="ItemBorder"
+                                            Padding="{TemplateBinding Padding}"
+                                            Background="{TemplateBinding Background}">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsHighlighted" Value="True">
+                                            <Setter TargetName="ItemBorder" Property="Background" Value="#263654" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="ItemBorder" Property="Background" Value="#304B83" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="DropDownToggle"
+                                          Focusable="False"
+                                          Background="{TemplateBinding Background}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          BorderBrush="{TemplateBinding BorderBrush}"
+                                          BorderThickness="{TemplateBinding BorderThickness}"
+                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                <Grid>
+                                    <ContentPresenter Margin="10,0,34,0"
+                                                      HorizontalAlignment="Left"
+                                                      VerticalAlignment="Center"
+                                                      Content="{TemplateBinding SelectionBoxItem}"
+                                                      ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                                      ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                      ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" />
+                                    <Path Width="9"
+                                          Height="5"
+                                          Margin="0,0,12,0"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Fill="{StaticResource TextSecondaryBrush}"
+                                          Data="M 0 0 L 4.5 5 L 9 0 Z" />
+                                </Grid>
+                            </ToggleButton>
+                            <Popup x:Name="PART_Popup"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   Placement="Bottom"
+                                   PopupAnimation="Fade">
+                                <Border MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                        MaxHeight="300"
+                                        Margin="0,4,0,0"
+                                        Background="{StaticResource SurfaceRaisedBrush}"
+                                        BorderBrush="{StaticResource StrokeBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="7">
+                                    <ScrollViewer>
+                                        <ItemsPresenter />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="CaretBrush" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
+        </Style>
+        <Style TargetType="ToggleButton">
+            <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="ToggleBorder"
+                                Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ToggleBorder" Property="Background" Value="#44242B" />
+                                <Setter TargetName="ToggleBorder" Property="BorderBrush" Value="{StaticResource ErrorBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ToggleBorder" Property="Opacity" Value="0.84" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        </Style>
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        </Style>
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="SceneItem"
+                                Padding="{TemplateBinding Padding}"
+                                Background="Transparent"
+                                CornerRadius="7">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SceneItem" Property="Background" Value="#19222D" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="SceneItem" Property="Background" Value="#1D2D4D" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
-    <Grid>
+    <Grid Background="{StaticResource BackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="42" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Border Grid.Row="0"
+                MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Offset="0" Color="#0B0F15" />
+                    <GradientStop Offset="0.58" Color="#0E141C" />
+                    <GradientStop Offset="1" Color="#10161F" />
+                </LinearGradientBrush>
+            </Border.Background>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Margin="16,0,0,0" VerticalAlignment="Center" Orientation="Horizontal">
+                    <Border Width="22" Height="22" Background="#1B2948" CornerRadius="6">
+                        <TextBlock HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   FontFamily="Segoe Fluent Icons"
+                                   FontSize="12"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   Text="&#xE7F8;" />
+                    </Border>
+                    <TextBlock Margin="9,0,0,0"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#DCE3ED"
+                               Text="聆界" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Style="{StaticResource WindowCaptionButton}"
+                            AutomationProperties.Name="最小化"
+                            Click="MinimizeButton_Click"
+                            ToolTip="最小化">
+                        <TextBlock FontFamily="Segoe Fluent Icons" FontSize="10" Text="&#xE921;" />
+                    </Button>
+                    <Button Style="{StaticResource WindowCaptionButton}"
+                            AutomationProperties.Name="最大化或还原"
+                            Click="MaximizeRestoreButton_Click"
+                            ToolTip="最大化/还原">
+                        <TextBlock x:Name="MaximizeRestoreGlyph" FontFamily="Segoe Fluent Icons" FontSize="10" Text="&#xE922;" />
+                    </Button>
+                    <Button Style="{StaticResource WindowCloseButton}"
+                            AutomationProperties.Name="关闭"
+                            Click="CloseButton_Click"
+                            ToolTip="关闭">
+                        <TextBlock FontFamily="Segoe Fluent Icons" FontSize="10" Text="&#xE8BB;" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="250" />
+            <ColumnDefinition Width="218" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Border Background="#172238">
-            <Grid Margin="22,24">
+        <Border Background="{StaticResource SidebarBrush}">
+            <Grid Margin="16,18">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -48,23 +594,52 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <StackPanel>
-                    <TextBlock Foreground="White"
-                               FontSize="28"
-                               FontWeight="SemiBold"
-                               Text="聆界" />
-                    <TextBlock Margin="0,4,0,0"
-                               Foreground="#9EADC5"
-                               Text="ListenSphere Controller" />
+                    <TextBlock Style="{StaticResource EyebrowText}" Text="控制中心" />
+                    <Border Margin="0,8,0,0"
+                            Padding="11,9"
+                            Background="#1A2638"
+                            CornerRadius="8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource IconText}"
+                                       Foreground="{StaticResource AccentBrush}"
+                                       Text="&#xE9D2;" />
+                            <TextBlock Margin="10,0,0,0"
+                                       VerticalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       Text="声音总览" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
-                <StackPanel Grid.Row="1" Margin="0,32,0,0">
-                    <TextBlock Foreground="#9EADC5" FontSize="12" Text="场景" />
+                <Border Grid.Row="1"
+                        Margin="0,14,0,0"
+                        Padding="12"
+                        Background="{StaticResource SurfaceSubtleBrush}"
+                        CornerRadius="10">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource IconText}"
+                                       Foreground="#7FD6B2"
+                                       Text="&#xE703;" />
+                            <TextBlock Margin="9,0,0,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="White"
+                                       FontWeight="SemiBold"
+                                    Text="发送接入" />
+                        </StackPanel>
+                        <TextBlock Margin="0,6,0,9"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   FontSize="11"
+                                   Text="{Binding SenderStatusText}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Grid.Row="2" Margin="0,15,0,12" VerticalAlignment="Top">
+                    <TextBlock Style="{StaticResource EyebrowText}" Text="场景预设" />
                     <ListBox Height="142"
-                             Margin="0,8,0,0"
-                             Background="#202E48"
-                             BorderThickness="0"
-                             Foreground="White"
-                             ItemsSource="{Binding Scenes}"
+                              Margin="0,8,0,0"
+                              ItemsSource="{Binding Scenes}"
                              SelectedItem="{Binding SelectedScene}"
                              DisplayMemberPath="Name" />
                     <TextBox Height="32"
@@ -81,33 +656,39 @@
                                 Command="{Binding DeleteSceneCommand}"
                                 Content="删除" />
                     </WrapPanel>
+                    <WrapPanel Margin="0,6,0,0">
+                        <Button Command="{Binding RenameSceneCommand}" Content="重命名" />
+                        <Button Margin="6,0,0,0" Command="{Binding DuplicateSceneCommand}" Content="复制" />
+                        <Button Margin="6,0,0,0" Command="{Binding ImportSceneCommand}" Content="导入" />
+                        <Button Margin="6,0,0,0" Command="{Binding ExportSceneCommand}" Content="导出" />
+                    </WrapPanel>
                     <TextBlock Margin="0,8,0,0"
-                               Foreground="#B9C5D8"
+                               Foreground="{StaticResource TextSecondaryBrush}"
                                FontSize="11"
                                Text="{Binding SceneStatusText}"
                                TextWrapping="Wrap" />
                 </StackPanel>
 
                 <StackPanel Grid.Row="3">
-                    <TextBlock Foreground="#9EADC5" FontSize="12" Text="添加设备" />
+                    <TextBlock Style="{StaticResource EyebrowText}" Text="添加设备" />
                     <Border Margin="0,8,0,0"
                             Padding="12"
-                            Background="#202E48"
+                            Background="{StaticResource SurfaceSubtleBrush}"
                             CornerRadius="10">
                         <StackPanel>
                             <TextBlock Foreground="White" Text="一次性配对码" />
                             <TextBlock Margin="0,5,0,0"
                                        Foreground="#7FD6B2"
                                        FontFamily="Consolas"
-                                       FontSize="25"
+                                       FontSize="22"
                                        FontWeight="SemiBold"
                                        Text="{Binding Network.PairingCode}" />
                             <Button Margin="0,8,0,0"
                                     HorizontalAlignment="Left"
                                     Command="{Binding Network.GenerateCodeCommand}"
-                                    Content="生成验证码" />
+                                    Content="{Binding Network.PairingCodeActionText}" />
                             <TextBlock Margin="0,8,0,0"
-                                       Foreground="#B9C5D8"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
                                        FontSize="11"
                                        Text="{Binding Network.PairingHint}"
                                        TextWrapping="Wrap" />
@@ -123,324 +704,1231 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Border Padding="26,20"
-                    Background="White"
-                    BorderBrush="#E4E9EF"
-                    BorderThickness="0,0,0,1">
+            <Border Padding="22,13"
+                    Background="{StaticResource SidebarBrush}"
+                    BorderThickness="0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel>
-                        <TextBlock FontSize="22"
+                        <TextBlock FontSize="20"
                                    FontWeight="SemiBold"
-                                   Foreground="#182235"
-                                   Text="声音总览" />
-                        <TextBlock Margin="0,5,0,0"
-                                   Foreground="#647184"
+                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                   Text="声音中枢" />
+                        <TextBlock Margin="0,3,0,0"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
                                    Text="{Binding StatusText}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal">
-                        <TextBlock Margin="0,0,10,0"
-                                   VerticalAlignment="Center"
-                                   Foreground="#647184"
-                                   Text="{Binding Network.NetworkStatus}" />
-                        <Button Command="{Binding RefreshCommand}" Content="刷新应用" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Height="34"
+                                Margin="0,0,10,0"
+                                Padding="12,5"
+                                Style="{StaticResource PrimaryButton}"
+                                AutomationProperties.Name="启用发送连接"
+                                Command="{Binding EnableSenderCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource IconText}" Text="&#xE703;" />
+                                <TextBlock Margin="8,0,0,0" Text="启用发送连接" />
+                            </StackPanel>
+                        </Button>
+                        <Border Margin="0,0,10,0"
+                                Padding="10,6"
+                                VerticalAlignment="Center"
+                                Background="#172131"
+                                CornerRadius="14">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="6" Height="6"
+                                         Margin="0,0,7,0"
+                                         VerticalAlignment="Center"
+                                         Fill="{StaticResource SuccessBrush}" />
+                                <TextBlock VerticalAlignment="Center"
+                                           FontSize="11"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Text="{Binding Network.NetworkStatus}" />
+                            </StackPanel>
+                        </Border>
+                        <Button AutomationProperties.Name="刷新应用"
+                                Command="{Binding RefreshCommand}"
+                                Style="{StaticResource IconButton}"
+                                ToolTip="刷新应用列表">
+                            <TextBlock Style="{StaticResource IconText}" Text="&#xE72C;" />
+                        </Button>
                     </StackPanel>
                 </Grid>
             </Border>
 
             <ScrollViewer Grid.Row="1"
-                          Padding="26"
+                          Padding="22"
                           HorizontalScrollBarVisibility="Disabled"
                           VerticalScrollBarVisibility="Auto">
                 <StackPanel>
-                    <Border Style="{StaticResource Card}">
+                    <Border Margin="0,0,0,12"
+                            Padding="14,9"
+                            Background="#121820"
+                            CornerRadius="9">
                         <Grid>
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.7*" />
+                                <ColumnDefinition Width="1" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="250" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="250" />
+                                <ColumnDefinition Width="1" />
+                                <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock FontSize="16"
-                                           FontWeight="SemiBold"
-                                           Foreground="#182235"
-                                           Text="播放输出" />
-                                <TextBlock Margin="0,5,0,0"
-                                           Foreground="#647184"
-                                           Text="{Binding Network.AudioStatus}"
-                                           TextWrapping="Wrap" />
-                                <TextBlock Margin="0,5,0,0"
-                                           Foreground="#B53D4C"
-                                           Text="{Binding Network.AudioErrorText}"
-                                           TextWrapping="Wrap" />
-                                <CheckBox Margin="0,9,0,0"
-                                          IsChecked="{Binding Network.FollowSystemDefaultPlayback, Mode=TwoWay}"
-                                          Content="跟随 Windows 系统默认输出" />
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource IconText}"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource AccentBrush}"
+                                           Text="&#xE703;" />
+                                <TextBlock Margin="9,0,0,0"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Text="{Binding Network.NetworkStatus}"
+                                           TextTrimming="CharacterEllipsis" />
                             </StackPanel>
-                            <ComboBox Grid.Column="1"
-                                      Height="34"
-                                      VerticalAlignment="Center"
-                                      ItemsSource="{Binding Network.PlaybackDevices}"
-                                      SelectedItem="{Binding Network.SelectedPlaybackDevice}"
-                                      DisplayMemberPath="DisplayName" />
-                            <Button Grid.Column="2"
-                                    Margin="8,0,28,0"
-                                    VerticalAlignment="Center"
-                                    Command="{Binding Network.RefreshOutputsCommand}"
-                                    Content="刷新设备" />
-                            <Grid Grid.Column="3">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <Grid>
+                            <Border Grid.Column="1" Margin="12,0" Background="#28313D" />
+                            <StackPanel Grid.Column="2"
+                                        Margin="15,0"
+                                        HorizontalAlignment="Center"
+                                        Orientation="Horizontal">
+                                <Ellipse Width="7" Height="7"
+                                         Margin="0,0,8,0"
+                                         VerticalAlignment="Center"
+                                         Fill="{StaticResource SuccessBrush}" />
+                                <TextBlock VerticalAlignment="Center"
+                                           FontWeight="SemiBold"
+                                           Text="{Binding Network.ActiveRemoteChannels.Count, StringFormat={}远程 {0} 个声道}" />
+                            </StackPanel>
+                            <Border Grid.Column="3" Margin="12,0" Background="#28313D" />
+                            <StackPanel Grid.Column="4"
+                                        Margin="15,0"
+                                        HorizontalAlignment="Center"
+                                        Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource IconText}"
+                                           Margin="0,0,8,0"
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource WarningBrush}"
+                                           Text="&#xE7F5;" />
+                                <TextBlock VerticalAlignment="Center"
+                                           FontWeight="SemiBold"
+                                           Text="{Binding Sessions.Count, StringFormat={}本机 {0} 个会话}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border Margin="0,0,0,16"
+                             Padding="14"
+                             Background="{StaticResource SurfaceSubtleBrush}"
+                             BorderBrush="Transparent"
+                             BorderThickness="1"
+                             CornerRadius="12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.25*" />
+                                <ColumnDefinition Width="42" />
+                                <ColumnDefinition Width="220" />
+                                <ColumnDefinition Width="42" />
+                                <ColumnDefinition Width="1.25*" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel VerticalAlignment="Center">
+                                <Grid Margin="0,0,0,7">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Style="{StaticResource IconText}"
+                                                   Foreground="{StaticResource AccentBrush}"
+                                                   Text="&#xE7F7;" />
+                                        <TextBlock Margin="8,0,0,0"
+                                                   VerticalAlignment="Center"
+                                                   FontWeight="SemiBold"
+                                                   Text="声音来源" />
+                                    </StackPanel>
+                                    <ToggleButton x:Name="GroupMixerButton"
+                                                  Width="72" Height="28"
+                                                  HorizontalAlignment="Right"
+                                                  Padding="7,0"
+                                                  Style="{StaticResource MuteToggleButton}"
+                                                  IsChecked="{Binding Network.IsGroupMixerOpen, Mode=TwoWay}"
+                                                  ToolTip="打开分组混音器">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Style="{StaticResource IconText}" FontSize="13" Foreground="{StaticResource AccentBrush}" Text="&#xE9D2;" />
+                                            <TextBlock Margin="5,0,0,0" VerticalAlignment="Center" FontSize="10" Text="分组" />
+                                        </StackPanel>
+                                    </ToggleButton>
+                                    <Popup IsOpen="{Binding Network.IsGroupMixerOpen, Mode=TwoWay}"
+                                           PlacementTarget="{Binding ElementName=GroupMixerButton}"
+                                           Placement="Bottom"
+                                           HorizontalOffset="-425"
+                                           StaysOpen="False"
+                                           AllowsTransparency="True">
+                                        <Border Width="500" Margin="0,7,0,0" Padding="15"
+                                                Background="{StaticResource SurfaceRaisedBrush}"
+                                                BorderBrush="{StaticResource AccentBrush}"
+                                                BorderThickness="1" CornerRadius="11">
+                                            <StackPanel>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock FontSize="16" FontWeight="SemiBold" Text="分组混音器" />
+                                                        <TextBlock Margin="0,3,0,0" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10"
+                                                                   Text="分组控制叠加在各声道设置之后，不会改写设备自己的音量和均衡器。" />
+                                                    </StackPanel>
+                                                    <ToggleButton Grid.Column="1" MinWidth="104" Height="31" Padding="9,0"
+                                                                  Style="{StaticResource MuteToggleButton}"
+                                                                  IsChecked="{Binding Network.AutomaticRoutingEnabled, Mode=TwoWay}"
+                                                                  Content="自动路由" />
+                                                </Grid>
+                                                <TextBlock Margin="0,5,0,12" Foreground="{StaticResource AccentBrush}" FontSize="10"
+                                                           Text="{Binding Network.AutomaticRoutingStatus}" />
+                                                <ItemsControl ItemsSource="{Binding Network.ActiveGroupBuses}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Margin="0,0,0,7" Padding="10,8" Background="#151D27"
+                                                                    BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="8">
+                                                                <Grid>
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="85" />
+                                                                        <ColumnDefinition Width="115" />
+                                                                        <ColumnDefinition Width="*" />
+                                                                        <ColumnDefinition Width="42" />
+                                                                        <ColumnDefinition Width="38" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <StackPanel VerticalAlignment="Center">
+                                                                        <TextBlock FontWeight="SemiBold" Text="{Binding Name}" />
+                                                                        <TextBlock FontSize="9" Foreground="{StaticResource TextSecondaryBrush}" Text="{Binding ChannelCountText}" />
+                                                                    </StackPanel>
+                                                                    <ComboBox Grid.Column="1" Height="31" Margin="7,0"
+                                                                              ItemsSource="{Binding EqualizerPresets}"
+                                                                              SelectedItem="{Binding SelectedEqualizerPreset, Mode=TwoWay}"
+                                                                              DisplayMemberPath="Name" />
+                                                                    <Slider Grid.Column="2" Margin="8,0" Minimum="0" Maximum="100"
+                                                                            Value="{Binding VolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                                                    <TextBlock Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10"
+                                                                               Text="{Binding VolumePercent, StringFormat={}{0:F0}%}" />
+                                                                    <ToggleButton Grid.Column="4" Width="34" Height="31" Margin="4,0,0,0"
+                                                                                  Style="{StaticResource MuteToggleButton}"
+                                                                                  IsChecked="{Binding IsMuted, Mode=TwoWay}"
+                                                                                  ToolTip="{Binding MuteButtonText}">
+                                                                        <TextBlock Style="{StaticResource IconText}" FontSize="14" Text="&#xE74F;" />
+                                                                    </ToggleButton>
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Text="当前没有已连接的远程声道。">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Network.ActiveGroupBuses.Count}" Value="0">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <Border Height="1" Margin="0,10,0,10" Background="{StaticResource StrokeBrush}" />
+                                                <Grid Margin="0,0,0,7">
+                                                    <TextBlock FontWeight="SemiBold" Text="已学习路由规则" />
+                                                    <TextBlock HorizontalAlignment="Right" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10"
+                                                               Text="关闭单条规则不会删除记录" />
+                                                </Grid>
+                                                <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto">
+                                                    <ItemsControl ItemsSource="{Binding Network.RoutingRules}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Border Margin="0,0,0,6" Padding="9,7" Background="#151D27"
+                                                                        BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="8">
+                                                                    <Grid>
+                                                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="76" /><ColumnDefinition Width="36" /></Grid.ColumnDefinitions>
+                                                                        <StackPanel>
+                                                                            <TextBlock FontSize="11" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                                                            <TextBlock Margin="0,2,0,0" Foreground="{StaticResource TextSecondaryBrush}" FontSize="9" Text="{Binding MatchSummary}" />
+                                                                        </StackPanel>
+                                                                        <ToggleButton Grid.Column="1" Height="29" Margin="7,0" Padding="7,0"
+                                                                                      Style="{StaticResource MuteToggleButton}"
+                                                                                      IsChecked="{Binding IsEnabled, Mode=TwoWay}"
+                                                                                      Content="启用" />
+                                                                        <Button Grid.Column="2" Width="32" Height="29" Command="{Binding DeleteCommand}"
+                                                                                Style="{StaticResource IconButton}" ToolTip="删除此路由规则">
+                                                                            <TextBlock Style="{StaticResource IconText}" Foreground="{StaticResource ErrorBrush}" Text="&#xE74D;" />
+                                                                        </Button>
+                                                                    </Grid>
+                                                                </Border>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </ScrollViewer>
+                                                <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Text="尚未学习规则；在声道调音中修改用途分组即可创建。">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers><DataTrigger Binding="{Binding Network.RoutingRules.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </Border>
+                                    </Popup>
+                                </Grid>
+                                <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel>
+                                        <Grid Margin="0,2"
+                                              Background="Transparent"
+                                              PreviewMouseLeftButtonDown="LocalSource_PreviewMouseLeftButtonDown"
+                                              MouseMove="LocalSource_MouseMove"
+                                              ToolTip="拖动卡片可将 Windows 本地总声音同时输出到其他播放设备">
+                                            <Border Padding="10,8"
+                                                    Background="#171F29"
+                                                    BorderBrush="Transparent"
+                                                    BorderThickness="1"
+                                                    CornerRadius="9">
+                                                <StackPanel>
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                        <StackPanel>
+                                                            <TextBlock FontWeight="SemiBold" Text="本地声音" />
+                                                            <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Text="进入聆界的本机音源增益" />
+                                                        </StackPanel>
+                                                        <ToggleButton Grid.Column="1"
+                                                                      Width="36" Height="32"
+                                                                      VerticalAlignment="Center"
+                                                                      Style="{StaticResource MuteToggleButton}"
+                                                                      IsChecked="{Binding Network.IsLocalSourceMuted, Mode=TwoWay}"
+                                                                      ToolTip="{Binding Network.LocalSourceMuteButtonText}">
+                                                            <TextBlock HorizontalAlignment="Center" FontSize="15" Style="{StaticResource IconText}" Text="&#xE74F;" />
+                                                        </ToggleButton>
+                                                    </Grid>
+                                                    <Grid Margin="0,7,0,0">
+                                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="42" /></Grid.ColumnDefinitions>
+                                                        <Slider Minimum="0"
+                                                                Maximum="100"
+                                                                ToolTip="本机音源增益"
+                                                                Value="{Binding Network.LocalSourceVolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                                        <TextBlock Grid.Column="1"
+                                                                   HorizontalAlignment="Right"
+                                                                   VerticalAlignment="Center"
+                                                                   FontSize="11"
+                                                                   Text="{Binding Network.LocalSourceVolumePercent, StringFormat={}{0:F0}%}" />
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+                                            <Border IsHitTestVisible="False"
+                                                    BorderBrush="#4C8DFF"
+                                                    BorderThickness="1.25"
+                                                    CacheMode="BitmapCache"
+                                                    CornerRadius="7"
+                                                    Opacity="0.035"
+                                                    local:AudioGlowBehavior.Level="{Binding LocalPeakPercent}">
+                                                <Border.Effect>
+                                                    <DropShadowEffect BlurRadius="14"
+                                                                      Color="#3F83FF"
+                                                                      Direction="0"
+                                                                      Opacity="0.9"
+                                                                      ShadowDepth="0" />
+                                                </Border.Effect>
+                                            </Border>
+                                        </Grid>
+
+                                        <ItemsControl ItemsSource="{Binding Network.ActiveRemoteChannels}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,2"
+                                                          Background="Transparent"
+                                                          PreviewMouseLeftButtonDown="RemoteSource_PreviewMouseLeftButtonDown"
+                                                          MouseMove="RemoteSource_MouseMove"
+                                                          ToolTip="{Binding NetworkQualityToolTip}">
+                                                        <Border Padding="10,8"
+                                                                Background="#171F29"
+                                                                BorderBrush="Transparent"
+                                                                BorderThickness="1"
+                                                                CornerRadius="9">
+                                                            <StackPanel>
+                                                                <Grid>
+                                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" MinWidth="120" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="40" /><ColumnDefinition Width="40" /></Grid.ColumnDefinitions>
+                                                                    <StackPanel>
+                                                                        <StackPanel Orientation="Horizontal">
+                                                                            <TextBlock Margin="0,0,6,0" Style="{StaticResource IconText}" Foreground="{StaticResource AccentBrush}" FontSize="13" Text="{Binding SourceGlyph}" />
+                                                                            <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                                                                        </StackPanel>
+                                                                        <StackPanel Orientation="Horizontal">
+                                                                            <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Text="{Binding SourceSubtitle}" />
+                                                                            <TextBlock Margin="6,0,0,0" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Text="{Binding StatusText}" />
+                                                                            <TextBlock Margin="6,0,0,0" Foreground="{StaticResource AccentBrush}" FontSize="10" Text="{Binding SelectedChannelGroup}" />
+                                                                            <TextBlock Margin="6,0,0,0" Foreground="{StaticResource TextSecondaryBrush}" FontSize="9" Text="{Binding RoutingStatus}" />
+                                                                            <TextBlock Margin="6,0,0,0" Foreground="{Binding NetworkQualityColor}" FontSize="9" Text="{Binding NetworkQualityText}" />
+                                                                        </StackPanel>
+                                                                    </StackPanel>
+                                                                    <ToggleButton x:Name="RemoteSourceButton"
+                                                                                  Grid.Column="1"
+                                                                                  MinWidth="96" Height="32"
+                                                                                  Margin="6,0"
+                                                                                  Padding="9,0"
+                                                                                  VerticalAlignment="Center"
+                                                                                  IsChecked="{Binding IsEditorOpen, Mode=TwoWay}"
+                                                                                  Style="{StaticResource MuteToggleButton}"
+                                                                                  ToolTip="打开声道调音">
+                                                                        <Grid MinWidth="76">
+                                                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal">
+                                                                                <TextBlock Style="{StaticResource IconText}" Foreground="{StaticResource AccentBrush}" Text="&#xE9E9;" />
+                                                                                <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" FontSize="10" Text="{Binding SelectedEqualizerPreset.Name}" />
+                                                                            </StackPanel>
+                                                                        </Grid>
+                                                                    </ToggleButton>
+                                                                    <ToggleButton Grid.Column="2" Width="36" Height="32" VerticalAlignment="Center" Style="{StaticResource MuteToggleButton}" IsChecked="{Binding IsMuted, Mode=TwoWay}" ToolTip="{Binding MuteButtonText}">
+                                                                        <TextBlock HorizontalAlignment="Center" FontSize="15" Style="{StaticResource IconText}" Text="&#xE74F;" />
+                                                                    </ToggleButton>
+                                                                    <Button Grid.Column="3" Width="32" Height="32" VerticalAlignment="Center" Command="{Binding DisconnectCommand}" Style="{StaticResource IconButton}" ToolTip="断开连接（保留设备信任）">
+                                                                        <TextBlock Style="{StaticResource IconText}" Foreground="{StaticResource WarningBrush}" Text="&#xE8BB;" />
+                                                                    </Button>
+                                                                </Grid>
+                                                                <Grid Margin="0,7,0,0">
+                                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="42" /></Grid.ColumnDefinitions>
+                                                                    <StackPanel Grid.Column="0" Margin="0,0,7,0" Orientation="Horizontal">
+                                                                        <ToggleButton Width="25" Height="25" Style="{StaticResource MuteToggleButton}"
+                                                                                      IsChecked="{Binding IsPinned, Mode=TwoWay}" ToolTip="固定到声道列表顶部">
+                                                                            <TextBlock Style="{StaticResource IconText}" FontSize="11" Text="&#xE840;" />
+                                                                        </ToggleButton>
+                                                                        <Button Width="23" Height="25" Margin="3,0,0,0" Command="{Binding MoveUpCommand}"
+                                                                                Style="{StaticResource IconButton}" ToolTip="上移声道">
+                                                                            <TextBlock Style="{StaticResource IconText}" FontSize="10" Text="&#xE70E;" />
+                                                                        </Button>
+                                                                        <Button Width="23" Height="25" Margin="3,0,0,0" Command="{Binding MoveDownCommand}"
+                                                                                Style="{StaticResource IconButton}" ToolTip="下移声道">
+                                                                            <TextBlock Style="{StaticResource IconText}" FontSize="10" Text="&#xE70D;" />
+                                                                        </Button>
+                                                                    </StackPanel>
+                                                                    <Slider Grid.Column="1" Minimum="0" Maximum="100" ToolTip="设备音量" Value="{Binding VolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                                                    <TextBlock Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11" Text="{Binding VolumePercent, StringFormat={}{0:F0}%}" />
+                                                                </Grid>
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <Border IsHitTestVisible="False"
+                                                                BorderBrush="#4C8DFF"
+                                                                BorderThickness="1.25"
+                                                                CacheMode="BitmapCache"
+                                                                CornerRadius="7"
+                                                                Opacity="0.035"
+                                                                local:AudioGlowBehavior.Level="{Binding AudioGlowLevel}">
+                                                            <Border.Effect>
+                                                                <DropShadowEffect BlurRadius="14"
+                                                                                  Color="#3F83FF"
+                                                                                  Direction="0"
+                                                                                  Opacity="0.9"
+                                                                                  ShadowDepth="0" />
+                                                            </Border.Effect>
+                                                        </Border>
+                                                        <Popup IsOpen="{Binding IsEditorOpen, Mode=TwoWay}" PlacementTarget="{Binding ElementName=RemoteSourceButton}" Placement="Right" StaysOpen="False" AllowsTransparency="True">
+                                                            <Border Width="740" Margin="8,0,0,0" Padding="16" Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1" CornerRadius="10">
+                                                                <StackPanel>
+                                                                    <Grid>
+                                                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                                        <StackPanel>
+                                                                            <TextBlock FontSize="17" FontWeight="SemiBold" Text="{Binding DisplayName}" />
+                                                                            <StackPanel Margin="0,3,0,0" Orientation="Horizontal">
+                                                                                <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Text="{Binding TransportLabel}" />
+                                                                                <TextBlock Margin="7,0,0,0" Foreground="{StaticResource SuccessBrush}" FontSize="11" Text="{Binding StatusText}" />
+                                                                            </StackPanel>
+                                                                        </StackPanel>
+                                                                        <ToggleButton Grid.Column="1" MinWidth="86" Height="32" Padding="10,0"
+                                                                                      Style="{StaticResource MuteToggleButton}"
+                                                                                      IsChecked="{Binding IsEqualizerEnabled, Mode=TwoWay}"
+                                                                                      Content="均衡器启用" />
+                                                                    </Grid>
+                                                                    <Border Margin="0,14,0,12" Padding="12,10" Background="#151D27" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="8">
+                                                                        <Grid>
+                                                                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="190" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                                                            <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="用途分组" />
+                                                                            <ComboBox Grid.Column="1" Height="34" Margin="12,0,0,0"
+                                                                                      ItemsSource="{Binding AvailableChannelGroups}"
+                                                                                      SelectedItem="{Binding SelectedChannelGroup, Mode=TwoWay}" />
+                                                                            <TextBlock Grid.Column="2" Margin="14,0,0,0" VerticalAlignment="Center"
+                                                                                       Foreground="{StaticResource TextSecondaryBrush}" FontSize="10"
+                                                                                       Text="修改后会自动记住；同名来源下次连接时直接进入此分组。" />
+                                                                            <TextBlock Grid.Row="1" Margin="0,10,0,0" VerticalAlignment="Center" FontWeight="SemiBold" Text="调音预设" />
+                                                                            <ComboBox Grid.Row="1" Grid.Column="1" Height="34" Margin="12,10,0,0"
+                                                                                      ItemsSource="{Binding EqualizerPresets}"
+                                                                                      SelectedItem="{Binding SelectedEqualizerPreset, Mode=TwoWay}"
+                                                                                      DisplayMemberPath="Name" />
+                                                                            <TextBlock Grid.Row="1" Grid.Column="2" Margin="14,10,0,0" VerticalAlignment="Center"
+                                                                                       Foreground="{StaticResource TextSecondaryBrush}" FontSize="10"
+                                                                                       Text="预设会立即作用于该来源；手动调整后自动标记为自定义。" />
+                                                                        </Grid>
+                                                                    </Border>
+                                                                    <Border Margin="0,0,0,12" Padding="12,10" Background="#151D27" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="8">
+                                                                        <StackPanel>
+                                                                            <Grid>
+                                                                                <Grid.ColumnDefinitions>
+                                                                                    <ColumnDefinition Width="*" />
+                                                                                    <ColumnDefinition Width="Auto" />
+                                                                                </Grid.ColumnDefinitions>
+                                                                                <StackPanel Orientation="Horizontal">
+                                                                                    <TextBlock FontWeight="SemiBold" Text="动态处理" />
+                                                                                    <TextBlock Margin="9,0,0,0" FontSize="10" Foreground="{Binding DynamicsStatusColor}" Text="{Binding DynamicsStatusText}" />
+                                                                                </StackPanel>
+                                                                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                                                    <CheckBox Margin="0,0,12,0" IsChecked="{Binding IsVoiceDuckingTrigger, Mode=TwoWay}" Content="语音触发" />
+                                                                                    <CheckBox IsChecked="{Binding IsVoiceDuckingTarget, Mode=TwoWay}" Content="被闪避" />
+                                                                                </StackPanel>
+                                                                            </Grid>
+                                                                            <Grid Margin="0,10,0,0">
+                                                                                <Grid.ColumnDefinitions>
+                                                                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                                                                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                                                                                    <ColumnDefinition Width="*" />
+                                                                                </Grid.ColumnDefinitions>
+                                                                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                                                                    <TextBlock FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" Text="前级增益" />
+                                                                                    <Slider Minimum="-24" Maximum="12" Value="{Binding PreampDb, Mode=TwoWay}" />
+                                                                                    <TextBlock HorizontalAlignment="Right" FontSize="10" Text="{Binding PreampDb, StringFormat={}{0:F1} dB}" />
+                                                                                </StackPanel>
+                                                                                <StackPanel Grid.Column="1" Margin="0,0,12,0">
+                                                                                    <CheckBox IsChecked="{Binding NoiseGateEnabled, Mode=TwoWay}" Content="噪声门" />
+                                                                                    <Slider Minimum="-80" Maximum="-10" Value="{Binding NoiseGateThresholdDb, Mode=TwoWay}" />
+                                                                                    <TextBlock HorizontalAlignment="Right" FontSize="10" Text="{Binding NoiseGateThresholdDb, StringFormat={}{0:F0} dB}" />
+                                                                                </StackPanel>
+                                                                                <StackPanel Grid.Column="2" Margin="0,0,12,0">
+                                                                                    <CheckBox IsChecked="{Binding CompressorEnabled, Mode=TwoWay}" Content="压缩器" />
+                                                                                    <Slider Minimum="-40" Maximum="0" Value="{Binding CompressorThresholdDb, Mode=TwoWay}" />
+                                                                                    <TextBlock HorizontalAlignment="Right" FontSize="10" Text="{Binding CompressorThresholdDb, StringFormat={}{0:F0} dB}" />
+                                                                                </StackPanel>
+                                                                                <StackPanel Grid.Column="3" Margin="0,0,12,0">
+                                                                                    <TextBlock FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" Text="压缩比 / 闪避" />
+                                                                                    <Slider Minimum="1" Maximum="20" Value="{Binding CompressorRatio, Mode=TwoWay}" />
+                                                                                    <TextBlock HorizontalAlignment="Right" FontSize="10" Text="{Binding CompressorRatio, StringFormat={}{0:F1}:1}" />
+                                                                                    <Slider Minimum="0" Maximum="30" Value="{Binding VoiceDuckingReductionDb, Mode=TwoWay}" />
+                                                                                </StackPanel>
+                                                                                <StackPanel Grid.Column="4">
+                                                                                    <CheckBox IsChecked="{Binding LimiterEnabled, Mode=TwoWay}" Content="声道限幅" />
+                                                                                    <Slider Minimum="-12" Maximum="-0.1" Value="{Binding LimiterCeilingDb, Mode=TwoWay}" />
+                                                                                    <TextBlock HorizontalAlignment="Right" FontSize="10" Text="{Binding LimiterCeilingDb, StringFormat={}{0:F1} dB}" />
+                                                                                </StackPanel>
+                                                                            </Grid>
+                                                                        </StackPanel>
+                                                                    </Border>
+                                                                    <Grid Margin="0,2,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal"><TextBlock FontWeight="SemiBold" Text="十段均衡器" /><TextBlock Margin="8,0,0,0" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Text="-20 dB ～ +20 dB" /></StackPanel><Button Grid.Column="1" Padding="10,4" Command="{Binding ResetEqualizerCommand}" Content="恢复原声" /></Grid>
+                                                                    <Border Height="104" Margin="0,0,0,8" Background="#0F151D" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="8">
+                                                                        <local:EqualizerCurveControl Gains="{Binding EqualizerCurveGains, Mode=OneWay}" />
+                                                                    </Border>
+                                                                    <Border Height="245" Padding="10,8" Background="#0F151D" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="8">
+                                                                        <Grid>
+                                                                            <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                                                            <Grid Grid.Row="0">
+                                                                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                                                                <StackPanel Grid.Column="0" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq20Db, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq20Db, Mode=TwoWay}" /></StackPanel>
+                                                                                <StackPanel Grid.Column="1" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq60Db, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq60Db, Mode=TwoWay}" /></StackPanel>
+                                                                                <StackPanel Grid.Column="2" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq100Db, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq100Db, Mode=TwoWay}" /></StackPanel>
+                                                                                <StackPanel Grid.Column="3" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq250Db, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq250Db, Mode=TwoWay}" /></StackPanel>
+                                                                                <StackPanel Grid.Column="4" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq500Db, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq500Db, Mode=TwoWay}" /></StackPanel>
+                                                                                <StackPanel Grid.Column="5" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq1KDb, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq1KDb, Mode=TwoWay}" /></StackPanel>
+                                                                                <StackPanel Grid.Column="6" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq2KDb, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq2KDb, Mode=TwoWay}" /></StackPanel>
+                                                                                <StackPanel Grid.Column="7" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq4KDb, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq4KDb, Mode=TwoWay}" /></StackPanel>
+                                                                                <StackPanel Grid.Column="8" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq8KDb, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq8KDb, Mode=TwoWay}" /></StackPanel>
+                                                                                <StackPanel Grid.Column="9" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq20KDb, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq20KDb, Mode=TwoWay}" /></StackPanel>
+                                                                            </Grid>
+                                                                            <Grid Grid.Row="1" Margin="0,5,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Grid.Column="0" HorizontalAlignment="Center" Text="20Hz" /><TextBlock Grid.Column="1" HorizontalAlignment="Center" Text="60Hz" /><TextBlock Grid.Column="2" HorizontalAlignment="Center" Text="100Hz" /><TextBlock Grid.Column="3" HorizontalAlignment="Center" Text="250Hz" /><TextBlock Grid.Column="4" HorizontalAlignment="Center" Text="500Hz" /><TextBlock Grid.Column="5" HorizontalAlignment="Center" Text="1KHz" /><TextBlock Grid.Column="6" HorizontalAlignment="Center" Text="2KHz" /><TextBlock Grid.Column="7" HorizontalAlignment="Center" Text="4KHz" /><TextBlock Grid.Column="8" HorizontalAlignment="Center" Text="8KHz" /><TextBlock Grid.Column="9" HorizontalAlignment="Center" Text="20KHz" /></Grid>
+                                                                        </Grid>
+                                                                    </Border>
+                                                                    <TextBlock Margin="0,10,0,0" HorizontalAlignment="Center"
+                                                                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="10"
+                                                                               Text="输入 → 前级 → 噪声门 → 压缩器 → 均衡器 → 声道/分组音量 → 声道限幅 → 混音主限幅 → 输出" />
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </Popup>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </StackPanel>
+
+                            <TextBlock Grid.Column="1"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource IconText}"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       Text="&#xE76C;" />
+
+                            <Grid Grid.Column="2" VerticalAlignment="Center">
+                                <ToggleButton x:Name="AudioDetailsButton"
+                                              Padding="12,10"
+                                              IsChecked="{Binding Network.IsAudioDetailsOpen, Mode=TwoWay}"
+                                              ToolTip="点击查看完整播放数据">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border x:Name="HubCard" Padding="{TemplateBinding Padding}" Background="#1B2948" BorderBrush="Transparent" BorderThickness="1" CornerRadius="8">
+                                                <ContentPresenter />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="HubCard" Property="BorderBrush" Value="#5576A8" /></Trigger>
+                                                <Trigger Property="IsChecked" Value="True"><Setter TargetName="HubCard" Property="BorderBrush" Value="{StaticResource AccentBrush}" /></Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                    <StackPanel HorizontalAlignment="Center">
+                                        <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                                            <Ellipse Width="8" Height="8" Margin="0,0,8,0" VerticalAlignment="Center" Fill="{StaticResource SuccessBrush}" />
+                                            <TextBlock FontWeight="SemiBold" Text="聆界正在汇聚" />
+                                        </StackPanel>
+                                        <TextBlock Margin="0,5,0,0" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Text="点击查看完整播放数据" />
+                                    </StackPanel>
+                                </ToggleButton>
+                                <Popup IsOpen="{Binding Network.IsAudioDetailsOpen, Mode=TwoWay}" PlacementTarget="{Binding ElementName=AudioDetailsButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+                                    <Border Width="390" Margin="0,8,0,0" Padding="15" Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1" CornerRadius="10">
+                                        <StackPanel>
+                                            <TextBlock FontSize="15" FontWeight="SemiBold" Text="汇聚与播放详情" />
+                                            <TextBlock Margin="0,9,0,0" Foreground="{StaticResource TextPrimaryBrush}" Text="{Binding Network.AudioStatus}" TextWrapping="Wrap" />
+                                            <TextBlock Margin="0,7,0,0" Foreground="{StaticResource ErrorBrush}" Text="{Binding Network.AudioErrorText}" TextWrapping="Wrap" />
+                                            <Separator Margin="0,10,0,8" Background="{StaticResource StrokeBrush}" />
+                                            <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Text="数据包含接收端口、混音路数、缺帧与丢包状态；点击卡片外部关闭。" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+
+                            <TextBlock Grid.Column="3"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource IconText}"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       Text="&#xE76C;" />
+
+                            <Grid Grid.Column="4" VerticalAlignment="Center">
+                                 <Grid.RowDefinitions>
+                                     <RowDefinition Height="Auto" />
+                                     <RowDefinition Height="Auto" />
+                                     <RowDefinition Height="Auto" />
+                                     <RowDefinition Height="Auto" />
+                                     <RowDefinition Height="Auto" />
+                                 </Grid.RowDefinitions>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource IconText}"
+                                               Foreground="{StaticResource AccentBrush}"
+                                               Text="&#xE7F6;" />
+                                    <TextBlock Margin="8,0,0,0"
+                                               FontWeight="SemiBold"
+                                               Text="输出设备" />
+                                </StackPanel>
+                                <Grid Grid.Row="1" Margin="0,7,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="52" />
+                                        <ColumnDefinition Width="36" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Foreground="#647184" Text="主音量" />
-                                    <TextBlock Grid.Column="1"
-                                               HorizontalAlignment="Right"
-                                               Text="{Binding Network.MasterVolumePercent, StringFormat={}{0:F0}%}" />
+                                    <ComboBox Height="32"
+                                              ItemsSource="{Binding Network.PlaybackDevices}"
+                                              SelectedItem="{Binding Network.SelectedPlaybackDevice}"
+                                              DisplayMemberPath="DisplayName" />
+                                    <Button Grid.Column="1"
+                                            Width="30"
+                                            Height="30"
+                                            HorizontalAlignment="Right"
+                                            AutomationProperties.Name="刷新播放设备"
+                                            Command="{Binding Network.RefreshOutputsCommand}"
+                                            Style="{StaticResource IconButton}"
+                                            ToolTip="刷新播放设备">
+                                        <TextBlock Style="{StaticResource IconText}" Text="&#xE72C;" />
+                                    </Button>
                                 </Grid>
-                                <Slider Grid.Row="1"
-                                        Margin="0,7,0,0"
-                                        Minimum="0"
-                                        Maximum="100"
-                                        Value="{Binding Network.MasterVolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <CheckBox Grid.Row="2"
+                                          Margin="0,7,0,0"
+                                          Style="{StaticResource FluentSwitchCheckBox}"
+                                          IsChecked="{Binding Network.FollowSystemDefaultPlayback, Mode=TwoWay}"
+                                          Content="跟随 Windows 系统默认输出" />
+                                <Grid Grid.Row="3" Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="38" />
+                                        <ColumnDefinition Width="42" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock VerticalAlignment="Center"
+                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="10"
+                                               Text="主输出" />
+                                    <Slider Grid.Column="1" Margin="9,0,6,0"
+                                            Minimum="0" Maximum="100"
+                                            ToolTip="当前 Windows 输出设备音量"
+                                            Value="{Binding Network.MasterVolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                               FontSize="10" Text="{Binding Network.MasterVolumePercent, StringFormat={}{0:F0}%}" />
+                                    <ToggleButton Grid.Column="3" Width="32" Height="30" HorizontalAlignment="Right"
+                                                  Style="{StaticResource MuteToggleButton}"
+                                                  IsChecked="{Binding Network.IsSystemMuted, Mode=TwoWay}"
+                                                  ToolTip="{Binding Network.SystemMuteButtonText}">
+                                        <TextBlock HorizontalAlignment="Center" FontSize="13" Style="{StaticResource IconText}" Text="&#xE74F;" />
+                                    </ToggleButton>
+                                </Grid>
+                                <ItemsControl Grid.Row="4" Margin="0,8,0,0" ItemsSource="{Binding Network.AdditionalOutputs}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,0,0,6" Padding="9,7"
+                                                    AllowDrop="True"
+                                                    Background="#151D27"
+                                                    BorderBrush="{StaticResource StrokeBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="7"
+                                                    DragEnter="AdditionalOutput_DragOver"
+                                                    DragOver="AdditionalOutput_DragOver"
+                                                    Drop="AdditionalOutput_Drop">
+                                                <StackPanel>
+                                                     <Grid>
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Style="{StaticResource IconText}" Foreground="{StaticResource AccentBrush}" FontSize="13" Text="&#xE7F6;" />
+                                                            <TextBlock Margin="6,0,0,0" FontSize="11" FontWeight="SemiBold" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                                                        </StackPanel>
+                                                        <TextBlock HorizontalAlignment="Right" Foreground="{StaticResource TextSecondaryBrush}" FontSize="9" Text="{Binding Summary}" />
+                                                     </Grid>
+                                                     <Grid Margin="0,6,0,0">
+                                                         <Grid.ColumnDefinitions>
+                                                             <ColumnDefinition Width="*" />
+                                                             <ColumnDefinition Width="36" />
+                                                             <ColumnDefinition Width="34" />
+                                                         </Grid.ColumnDefinitions>
+                                                         <Slider Minimum="0" Maximum="100"
+                                                                 ToolTip="此 Windows 输出设备音量"
+                                                                 Value="{Binding VolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                                         <TextBlock Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                                                    FontSize="9" Text="{Binding VolumePercent, StringFormat={}{0:F0}%}" />
+                                                         <ToggleButton Grid.Column="2" Width="28" Height="26" HorizontalAlignment="Right"
+                                                                       Style="{StaticResource MuteToggleButton}"
+                                                                       IsChecked="{Binding IsMuted, Mode=TwoWay}"
+                                                                       ToolTip="{Binding MuteButtonText}">
+                                                             <TextBlock HorizontalAlignment="Center" FontSize="11" Style="{StaticResource IconText}" Text="&#xE74F;" />
+                                                         </ToggleButton>
+                                                     </Grid>
+                                                     <ItemsControl Margin="0,5,0,0" ItemsSource="{Binding Routes}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Grid Margin="0,2,0,0">
+                                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="28" /></Grid.ColumnDefinitions>
+                                                                    <TextBlock VerticalAlignment="Center" FontSize="10" Text="{Binding SourceName}" TextTrimming="CharacterEllipsis" />
+                                                                    <TextBlock Grid.Column="1" Margin="7,0" VerticalAlignment="Center" Foreground="{StaticResource SuccessBrush}" FontSize="9" Text="{Binding StatusText}" />
+                                                                    <Button Grid.Column="2" Width="25" Height="23" Command="{Binding RemoveCommand}" Style="{StaticResource IconButton}" ToolTip="取消此附加输出">
+                                                                        <TextBlock Style="{StaticResource IconText}" FontSize="10" Text="&#xE711;" />
+                                                                    </Button>
+                                                                </Grid>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </Grid>
                         </Grid>
                     </Border>
-                    <TextBlock Margin="2,24,0,10"
-                               FontSize="18"
-                               FontWeight="SemiBold"
-                               Foreground="#182235"
-                               Text="远程设备声道" />
-                    <ItemsControl ItemsSource="{Binding Network.RemoteChannels}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Width="292"
-                                        MinHeight="176"
-                                        Margin="0,0,12,12"
-                                        Style="{StaticResource Card}">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="42" />
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <Border Width="34" Height="34" Background="#EAF0FF" CornerRadius="9">
-                                                <TextBlock HorizontalAlignment="Center"
-                                                           VerticalAlignment="Center"
-                                                           Foreground="#3768D9"
-                                                           FontSize="17"
-                                                           Text="PC" />
-                                            </Border>
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock FontWeight="SemiBold"
-                                                           Text="{Binding DisplayName}"
-                                                           TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Margin="0,3,0,0"
-                                                           Foreground="#647184"
-                                                           FontSize="12"
-                                                           Text="{Binding StatusText}" />
-                                            </StackPanel>
-                                            <Ellipse Grid.Column="2" Width="9" Height="9">
-                                                <Ellipse.Style>
-                                                    <Style TargetType="Ellipse">
-                                                        <Setter Property="Fill" Value="#AAB4C1" />
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsOnline}" Value="True">
-                                                                <Setter Property="Fill" Value="#36A875" />
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Ellipse.Style>
-                                            </Ellipse>
-                                        </Grid>
-                                        <Grid Grid.Row="1" Margin="0,17,0,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="48" />
-                                            </Grid.ColumnDefinitions>
-                                            <Slider Minimum="0"
-                                                    Maximum="100"
-                                                    Value="{Binding VolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                            <TextBlock Grid.Column="1"
-                                                       HorizontalAlignment="Right"
-                                                       Text="{Binding VolumePercent, StringFormat={}{0:F0}%}" />
-                                        </Grid>
-                                        <ProgressBar Grid.Row="2"
-                                                     Height="7"
-                                                     Margin="0,13,0,0"
-                                                     Maximum="100"
-                                                     Value="{Binding PeakPercent, Mode=OneWay}" />
-                                        <ToggleButton Grid.Row="3"
-                                                      Height="31"
-                                                      Margin="0,13,0,0"
-                                                      IsChecked="{Binding IsMuted, Mode=TwoWay}"
-                                                      Content="{Binding MuteButtonText}" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <TextBlock Margin="2,12,0,10"
-                               FontSize="18"
-                               FontWeight="SemiBold"
-                               Foreground="#182235"
-                               Text="本机应用声道" />
-                    <ItemsControl ItemsSource="{Binding Sessions}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Width="292"
-                                        MinHeight="190"
-                                        Margin="0,0,12,12"
-                                        Style="{StaticResource Card}">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="42" />
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <Border Width="34" Height="34" Background="#EFF2F6" CornerRadius="9">
-                                                <Grid>
-                                                    <Image Source="{Binding Icon}" Stretch="Uniform" />
-                                                    <TextBlock HorizontalAlignment="Center"
-                                                               VerticalAlignment="Center"
-                                                               Foreground="#647184"
-                                                               Text="♪">
-                                                        <TextBlock.Style>
-                                                            <Style TargetType="TextBlock">
-                                                                <Setter Property="Visibility" Value="Visible" />
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding HasIcon}" Value="True">
-                                                                        <Setter Property="Visibility" Value="Collapsed" />
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </TextBlock.Style>
-                                                    </TextBlock>
-                                                </Grid>
-                                            </Border>
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock FontWeight="SemiBold"
-                                                           Text="{Binding DisplayName}"
-                                                           TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Margin="0,3,0,0"
-                                                           Foreground="#647184"
-                                                           FontSize="12"
-                                                           Text="{Binding ProcessText}" />
-                                            </StackPanel>
-                                            <TextBlock Grid.Column="2"
-                                                       Foreground="{Binding ActivityBrush}"
-                                                       FontSize="12"
-                                                       Text="{Binding ActivityText}" />
-                                        </Grid>
-                                        <Grid Grid.Row="1" Margin="0,17,0,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="48" />
-                                            </Grid.ColumnDefinitions>
-                                            <Slider Minimum="0"
-                                                    Maximum="100"
-                                                    Value="{Binding VolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                            <TextBlock Grid.Column="1"
-                                                       HorizontalAlignment="Right"
-                                                       Text="{Binding VolumePercent, StringFormat={}{0:F0}%}" />
-                                        </Grid>
-                                        <ProgressBar Grid.Row="2"
-                                                     Height="7"
-                                                     Margin="0,13,0,0"
-                                                     Maximum="100"
-                                                     Value="{Binding PeakPercent, Mode=OneWay}" />
-                                        <ToggleButton Grid.Row="3"
-                                                      Height="31"
-                                                      Margin="0,13,0,0"
-                                                      IsChecked="{Binding IsMuted, Mode=TwoWay}"
-                                                      Content="{Binding MuteButtonText}" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <Border Margin="0,12,0,0" Style="{StaticResource Card}">
+                    <Border Margin="0,12,0,0"
+                            Padding="14,12"
+                            Background="{StaticResource SurfaceSubtleBrush}"
+                            BorderBrush="{StaticResource StrokeBrush}"
+                            BorderThickness="1"
+                            CornerRadius="10">
                         <Grid>
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="270" />
-                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="44" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock FontWeight="SemiBold" Text="可信设备管理" />
+                            <StackPanel VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource IconText}"
+                                               Foreground="{StaticResource AccentBrush}"
+                                               Text="&#xE720;" />
+                                    <TextBlock Margin="8,0,0,0"
+                                               FontWeight="SemiBold"
+                                               Text="麦克风输出" />
+                                </StackPanel>
                                 <TextBlock Margin="0,4,0,0"
-                                           Foreground="#647184"
-                                           Text="撤销后，该设备必须重新输入验证码才能连接。" />
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           FontSize="10"
+                                           Text="手机麦克风 → 虚拟录音设备" />
                             </StackPanel>
-                            <ComboBox Grid.Column="1"
-                                      Height="32"
-                                      VerticalAlignment="Center"
-                                      ItemsSource="{Binding Network.TrustedDevices}"
-                                      SelectedItem="{Binding Network.SelectedTrustedDevice}"
-                                      DisplayMemberPath="DisplayName" />
-                            <Button Grid.Column="2"
-                                    Margin="8,0,0,0"
-                                    VerticalAlignment="Center"
-                                    Command="{Binding Network.RevokeCommand}"
-                                    Content="撤销信任" />
+                            <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
+                                <ComboBox Height="32"
+                                          ItemsSource="{Binding Network.MicrophoneOutputDevices}"
+                                          SelectedItem="{Binding Network.SelectedMicrophoneOutputDevice}"
+                                          DisplayMemberPath="DisplayName" />
+                                <TextBlock Margin="2,5,0,0"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           FontSize="9"
+                                           Text="{Binding Network.MicrophoneOutputStatus}"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding Network.MicrophoneOutputStatus}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Margin="8,0" VerticalAlignment="Center">
+                                <Grid>
+                                    <TextBlock Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="9"
+                                               Text="虚拟麦克风总音量" />
+                                    <TextBlock HorizontalAlignment="Right"
+                                               FontSize="10"
+                                               Text="{Binding Network.MicrophoneOutputVolumePercent, StringFormat={}{0:F0}%}" />
+                                </Grid>
+                                <Slider Margin="0,5,0,0"
+                                        Minimum="0"
+                                        Maximum="100"
+                                        Value="{Binding Network.MicrophoneOutputVolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <CheckBox Margin="0,5,0,0"
+                                          Style="{StaticResource FluentSwitchCheckBox}"
+                                          IsChecked="{Binding Network.MicrophoneMonitoringEnabled, Mode=TwoWay}"
+                                          Content="监听到扬声器"
+                                          ToolTip="开启后手机麦克风会从下方选择的设备发声，可能产生回声或啸叫" />
+                                <ComboBox Margin="0,5,0,0"
+                                          Height="28"
+                                          ItemsSource="{Binding Network.PlaybackDevices}"
+                                          SelectedItem="{Binding Network.SelectedMicrophoneMonitoringDevice}"
+                                          DisplayMemberPath="DisplayName"
+                                          ToolTip="选择手机麦克风的监听播放设备">
+                                    <ComboBox.Style>
+                                        <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                                            <Setter Property="IsEnabled" Value="False" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Network.MicrophoneMonitoringEnabled}" Value="True">
+                                                    <Setter Property="IsEnabled" Value="True" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ComboBox.Style>
+                                </ComboBox>
+                            </StackPanel>
+                            <ToggleButton Grid.Column="3"
+                                          Width="36"
+                                          Height="34"
+                                          VerticalAlignment="Center"
+                                          Style="{StaticResource MuteToggleButton}"
+                                          IsChecked="{Binding Network.MicrophoneOutputMuted, Mode=TwoWay}"
+                                          ToolTip="静音全部远程麦克风输出">
+                                <TextBlock Style="{StaticResource IconText}"
+                                           FontSize="15"
+                                           Text="&#xE74F;" />
+                            </ToggleButton>
                         </Grid>
                     </Border>
-
-                    <Border Margin="0,12,0,0" Style="{StaticResource Card}">
+                    <Grid Margin="2,22,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource IconText}"
+                                       Foreground="{StaticResource AccentBrush}"
+                                       Text="&#xE772;" />
+                            <TextBlock Margin="9,0,0,0"
+                                       Style="{StaticResource SectionHeading}"
+                                       Text="其他设备" />
+                        </StackPanel>
+                    </Grid>
+                    <Border Margin="0,0,0,8"
+                            Padding="18"
+                            Background="{StaticResource SurfaceSubtleBrush}"
+                            BorderBrush="Transparent"
+                            BorderThickness="0"
+                            CornerRadius="10">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Network.VisibleRemoteChannels.Count}" Value="0">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <TextBlock FontWeight="SemiBold" Text="稳定性与诊断" />
+                                <TextBlock FontWeight="SemiBold" Text="当前连接方式没有设备" />
                                 <TextBlock Margin="0,4,0,0"
-                                           Foreground="#647184"
-                                           Text="{Binding DiagnosticStatusText}"
-                                           TextWrapping="Wrap" />
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Text="{Binding Network.EmptyTransportText}" />
                             </StackPanel>
                             <Button Grid.Column="1"
-                                    Margin="14,0,0,0"
                                     VerticalAlignment="Center"
                                     Style="{StaticResource PrimaryButton}"
+                                    AutomationProperties.Name="添加远程设备"
+                                    Command="{Binding EnableSenderCommand}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource IconText}" Text="&#xE710;" />
+                                    <TextBlock Margin="7,0,0,0" Text="添加设备" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </Border>
+                    <Grid Margin="0,0,0,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <RadioButton Margin="0,0,6,0"
+                                     GroupName="RemoteTransport"
+                                     IsChecked="{Binding Network.IsWirelessSelected, Mode=OneWay}"
+                                     Command="{Binding Network.SelectWirelessCommand}"
+                                     Cursor="Hand">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="Card" Padding="12,10" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="9">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="Card" Property="Background" Value="#1B2948" />
+                                            <Setter TargetName="Card" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Card" Property="BorderBrush" Value="#5576A8" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource IconText}" Foreground="{StaticResource AccentBrush}" Text="&#xE701;" />
+                                <StackPanel Margin="9,0,0,0">
+                                    <TextBlock FontWeight="SemiBold" Text="无线网络" />
+                                    <TextBlock Foreground="{StaticResource SuccessBrush}" FontSize="10" Text="当前可用" />
+                                    <StackPanel Margin="0,2,0,0" Orientation="Horizontal">
+                                        <TextBlock MaxWidth="275"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   FontSize="9"
+                                                   Text="{Binding Network.WirelessIpAddressText}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding Network.WirelessIpAddressText}" />
+                                        <TextBlock Margin="12,0,0,0"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   FontSize="9"
+                                                   Text="{Binding Network.WirelessPortText}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton Grid.Column="1" Margin="3,0"
+                                     GroupName="RemoteTransport"
+                                     IsChecked="{Binding Network.IsBluetoothSelected, Mode=OneWay}"
+                                     Command="{Binding Network.SelectBluetoothCommand}"
+                                     Cursor="Hand">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="Card" Padding="12,10" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="9">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="Card" Property="Background" Value="#1B2948" />
+                                            <Setter TargetName="Card" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Card" Property="BorderBrush" Value="#5576A8" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource IconText}" Foreground="{StaticResource AccentBrush}" Text="&#xE702;" />
+                                <StackPanel Margin="9,0,0,0">
+                                    <TextBlock FontWeight="SemiBold" Text="蓝牙" />
+                                    <TextBlock Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="10"
+                                               Text="{Binding Network.BluetoothStatus}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton Grid.Column="2" Margin="6,0,0,0"
+                                     GroupName="RemoteTransport"
+                                     IsChecked="{Binding Network.IsWiredSelected, Mode=OneWay}"
+                                     Command="{Binding Network.SelectWiredCommand}"
+                                     Cursor="Hand">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="Card" Padding="12,10" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="9">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="Card" Property="Background" Value="#1B2948" />
+                                            <Setter TargetName="Card" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Card" Property="BorderBrush" Value="#5576A8" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource IconText}" Foreground="{StaticResource TextSecondaryBrush}" Text="&#xE88E;" />
+                                <StackPanel Margin="9,0,0,0">
+                                    <TextBlock FontWeight="SemiBold" Text="有线" />
+                                    <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Text="{Binding Network.UsbStatus}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </RadioButton>
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Network.VisibleRemoteChannels}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border MinHeight="70"
+                                        Margin="0,0,0,6"
+                                        Padding="12,9"
+                                        BorderBrush="Transparent"
+                                        BorderThickness="1"
+                                        CornerRadius="9">
+                                    <Border.RenderTransform>
+                                        <TranslateTransform Y="0" />
+                                    </Border.RenderTransform>
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="#1B2431" />
+                                                    <Setter Property="BorderBrush" Value="#3A4D68" />
+                                                </Trigger>
+                                                <EventTrigger RoutedEvent="Loaded">
+                                                    <BeginStoryboard>
+                                                        <Storyboard>
+                                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.24" />
+                                                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)" From="8" To="0" Duration="0:0:0.28">
+                                                                <DoubleAnimation.EasingFunction>
+                                                                    <CubicEase EasingMode="EaseOut" />
+                                                                </DoubleAnimation.EasingFunction>
+                                                            </DoubleAnimation>
+                                                        </Storyboard>
+                                                    </BeginStoryboard>
+                                                </EventTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="44" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="44" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="34" Height="34" Background="#1B2948" CornerRadius="9">
+                                            <TextBlock HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"
+                                                       Style="{StaticResource IconText}"
+                                                       Foreground="{StaticResource AccentBrush}"
+                                                       Text="&#xE7F7;" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock FontWeight="SemiBold"
+                                                       Text="{Binding DisplayName}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <StackPanel Margin="0,3,0,0" Orientation="Horizontal">
+                                                <Ellipse Width="7" Height="7" Margin="0,0,7,0" VerticalAlignment="Center">
+                                                    <Ellipse.Style>
+                                                        <Style TargetType="Ellipse">
+                                                            <Setter Property="Fill" Value="{StaticResource MutedBrush}" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                                                                    <Setter Property="Fill" Value="{StaticResource SuccessBrush}" />
+                                                                    <DataTrigger.EnterActions>
+                                                                        <BeginStoryboard x:Name="OnlinePulse">
+                                                                            <Storyboard AutoReverse="True" RepeatBehavior="Forever">
+                                                                                <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0.55" To="1" Duration="0:0:0.9" />
+                                                                            </Storyboard>
+                                                                        </BeginStoryboard>
+                                                                    </DataTrigger.EnterActions>
+                                                                    <DataTrigger.ExitActions>
+                                                                        <RemoveStoryboard BeginStoryboardName="OnlinePulse" />
+                                                                    </DataTrigger.ExitActions>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Ellipse.Style>
+                                                </Ellipse>
+                                                <TextBlock Foreground="{StaticResource TextSecondaryBrush}"
+                                                           FontSize="11"
+                                                           Text="{Binding ListTransportLabel}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2"
+                                                   Margin="12,0"
+                                                   VerticalAlignment="Center"
+                                                   HorizontalAlignment="Right"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   FontSize="11"
+                                                   Text="{Binding StatusText}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <Button Grid.Column="3"
+                                                Margin="4,0,0,0"
+                                                AutomationProperties.Name="删除设备"
+                                                Command="{Binding DeleteCommand}"
+                                                Style="{StaticResource IconButton}"
+                                                ToolTip="删除设备并撤销信任（再次连接需要重新配对）">
+                                            <TextBlock Style="{StaticResource IconText}"
+                                                       Foreground="{StaticResource ErrorBrush}"
+                                                       Text="&#xE74D;" />
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Grid Margin="2,18,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource IconText}"
+                                       Foreground="{StaticResource WarningBrush}"
+                                       Text="&#xE7F5;" />
+                            <TextBlock Margin="9,0,0,0"
+                                       Style="{StaticResource SectionHeading}"
+                                       Text="本机应用" />
+                        </StackPanel>
+                    </Grid>
+                    <Border Margin="0,0,0,8"
+                            Padding="18"
+                            Background="{StaticResource SurfaceSubtleBrush}"
+                            BorderBrush="Transparent"
+                            BorderThickness="0"
+                            CornerRadius="10">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Sessions.Count}" Value="0">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel>
+                            <TextBlock FontWeight="SemiBold" Text="当前没有应用正在播放声音" />
+                            <TextBlock Margin="0,4,0,0"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       Text="播放游戏、音乐或视频后，对应应用会自动显示在这里。" />
+                        </StackPanel>
+                    </Border>
+                    <ItemsControl ItemsSource="{Binding Sessions}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border MinHeight="70"
+                                        Margin="0,0,0,6"
+                                        Padding="12,9"
+                                        Background="{StaticResource SurfaceSubtleBrush}"
+                                        BorderBrush="Transparent"
+                                        BorderThickness="1"
+                                        CornerRadius="10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="44" />
+                                            <ColumnDefinition Width="2*" />
+                                            <ColumnDefinition Width="1.4*" />
+                                            <ColumnDefinition Width="1.7*" />
+                                            <ColumnDefinition Width="54" />
+                                            <ColumnDefinition Width="1.2*" />
+                                            <ColumnDefinition Width="64" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="34" Height="34" Background="#222A35" CornerRadius="9">
+                                            <Grid>
+                                                <Image Margin="4" Source="{Binding Icon}" Stretch="Uniform" />
+                                                <TextBlock HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           Text="&#xE7F5;">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock" BasedOn="{StaticResource IconText}">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding HasIcon}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Grid>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock FontWeight="SemiBold"
+                                                       Text="{Binding DisplayName}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Margin="0,3,0,0"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       FontSize="11"
+                                                       Text="{Binding ProcessText}" />
+                                        </StackPanel>
+                                        <ProgressBar Grid.Column="2"
+                                                     Margin="12,0"
+                                                     VerticalAlignment="Center"
+                                                     Maximum="100"
+                                                     local:AudioLevelBehavior.Level="{Binding PeakPercent, Mode=OneWay}" />
+                                        <Slider Grid.Column="3"
+                                                Margin="12,0"
+                                                Minimum="0"
+                                                Maximum="100"
+                                                Value="{Binding VolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Grid.Column="4"
+                                                   HorizontalAlignment="Right"
+                                                   VerticalAlignment="Center"
+                                                   FontFamily="Consolas"
+                                                   Text="{Binding VolumePercent, StringFormat={}{0:F0}%}" />
+                                        <TextBlock Grid.Column="5"
+                                                   Margin="12,0"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{Binding ActivityBrush}"
+                                                   FontSize="11"
+                                                   Text="{Binding ActivityText}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <ToggleButton Grid.Column="6"
+                                                      Width="54"
+                                                      Height="34"
+                                                      Style="{StaticResource MuteToggleButton}"
+                                                      AutomationProperties.Name="{Binding MuteButtonText}"
+                                                      ToolTip="{Binding MuteButtonText}"
+                                                      IsChecked="{Binding IsMuted, Mode=TwoWay}">
+                                            <TextBlock HorizontalAlignment="Center"
+                                                       Style="{StaticResource IconText}"
+                                                       Text="&#xE74F;" />
+                                        </ToggleButton>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Border Margin="0,14,0,0" Style="{StaticResource Card}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="42" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource IconText}"
+                                       Foreground="{StaticResource SuccessBrush}"
+                                       Text="&#xE9D9;" />
+                            <StackPanel Grid.Column="1">
+                                <TextBlock FontWeight="SemiBold" Text="稳定性与诊断" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           FontSize="11"
+                                           Text="{Binding DiagnosticStatusText}"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <Button Grid.Column="2"
+                                    Margin="14,0,0,0"
+                                    VerticalAlignment="Center"
+                                    AutomationProperties.Name="导出诊断包"
                                     Command="{Binding ExportDiagnosticsCommand}"
-                                    Content="导出诊断包" />
+                                    Content="导出诊断" />
                         </Grid>
                     </Border>
 
                     <TextBlock Margin="2,14,0,0"
-                               Foreground="#B53D4C"
+                               Foreground="{StaticResource ErrorBrush}"
                                Text="{Binding ErrorText}"
                                TextWrapping="Wrap" />
                 </StackPanel>
@@ -464,22 +1952,24 @@
                     Padding="34"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
-                    Background="White"
+                    Background="{StaticResource SurfaceRaisedBrush}"
+                    BorderBrush="{StaticResource StrokeBrush}"
+                    BorderThickness="1"
                     CornerRadius="18">
                 <StackPanel>
                     <TextBlock FontSize="25"
                                FontWeight="SemiBold"
-                               Foreground="#182235"
+                               Foreground="{StaticResource TextPrimaryBrush}"
                                Text="欢迎使用聆界" />
                     <TextBlock Margin="0,8,0,22"
-                               Foreground="#647184"
-                               Text="四步完成首次设置，无需填写 IP 或音频参数。" />
-                    <TextBlock Margin="0,7" FontSize="15" Text="1  在顶部选择你的耳机或音箱" />
-                    <TextBlock Margin="0,7" FontSize="15" Text="2  播放一段声音，确认本机应用声道出现" />
-                    <TextBlock Margin="0,7" FontSize="15" Text="3  在左下角生成验证码，并在发送端输入" />
-                    <TextBlock Margin="0,7" FontSize="15" Text="4  听到远程声音后，保存一个常用场景" />
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Text="只需确认声音来源和最终输出，不需要理解专业音频参数。" />
+                    <TextBlock Margin="0,7" FontSize="15" Text="1  选择你的耳机或音箱" />
+                    <TextBlock Margin="0,7" FontSize="15" Text="2  播放声音，确认本机应用声道出现" />
+                    <TextBlock Margin="0,7" FontSize="15" Text="3  点击“启用发送连接”添加另一台设备" />
+                    <TextBlock Margin="0,7" FontSize="15" Text="4  调整音量并保存常用场景" />
                     <TextBlock Margin="0,18,0,0"
-                               Foreground="#8A5B22"
+                               Foreground="{StaticResource WarningBrush}"
                                Text="提示：双机网络验证可稍后补做；当前可先体验本机声道和场景。"
                                TextWrapping="Wrap" />
                     <Button Margin="0,24,0,0"
@@ -490,5 +1980,108 @@
                 </StackPanel>
             </Border>
         </Border>
+
+        <Border Grid.ColumnSpan="2"
+                Panel.ZIndex="30"
+                Background="#D90B0F15">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Network.IsDeleteConfirmationVisible}" Value="True">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <Border Width="470"
+                    Padding="28"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="{StaticResource SurfaceRaisedBrush}"
+                    BorderBrush="#704048"
+                    BorderThickness="1"
+                    CornerRadius="16">
+                <Border.RenderTransform>
+                    <ScaleTransform ScaleX="1" ScaleY="1" />
+                </Border.RenderTransform>
+                <Border.Triggers>
+                    <EventTrigger RoutedEvent="Loaded">
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                 From="0"
+                                                 To="1"
+                                                 Duration="0:0:0.16" />
+                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                 From="0.97"
+                                                 To="1"
+                                                 Duration="0:0:0.18" />
+                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                 From="0.97"
+                                                 To="1"
+                                                 Duration="0:0:0.18" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </EventTrigger>
+                </Border.Triggers>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="42"
+                                Height="42"
+                                Background="#3A2229"
+                                CornerRadius="11">
+                            <TextBlock HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource IconText}"
+                                       FontSize="20"
+                                       Foreground="{StaticResource ErrorBrush}"
+                                       Text="&#xE74D;" />
+                        </Border>
+                        <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                            <TextBlock FontSize="20"
+                                       FontWeight="SemiBold"
+                                       Text="删除这台设备？" />
+                            <TextBlock Margin="0,3,0,0"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       Text="此操作会撤销设备信任" />
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Grid.Row="1"
+                               Margin="0,22,0,22"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               LineHeight="23"
+                               TextWrapping="Wrap">
+                        <Run Text="设备“" />
+                        <Run FontWeight="SemiBold"
+                             Foreground="{StaticResource TextPrimaryBrush}"
+                             Text="{Binding Network.DeleteConfirmationDeviceName, Mode=OneWay}" />
+                        <Run Text="”将立即断开并从可信设备中移除。再次连接时，需要重新输入六位验证码。" />
+                    </TextBlock>
+                    <StackPanel Grid.Row="2"
+                                HorizontalAlignment="Right"
+                                Orientation="Horizontal">
+                        <Button MinWidth="86"
+                                AutomationProperties.Name="取消删除设备"
+                                Command="{Binding Network.CancelDeleteCommand}"
+                                Content="取消" />
+                        <Button MinWidth="106"
+                                Margin="10,0,0,0"
+                                Background="#B94E59"
+                                BorderBrush="{StaticResource ErrorBrush}"
+                                AutomationProperties.Name="确认删除设备"
+                                Command="{Binding Network.ConfirmDeleteCommand}"
+                                Content="删除设备"
+                                FontWeight="SemiBold" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Border>
+        </Grid>
     </Grid>
 </Window>

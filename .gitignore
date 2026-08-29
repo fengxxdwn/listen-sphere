@@ -1,7 +1,13 @@
 bin/
 obj/
+build/
 .vs/
 .idea/
+.gradle/
+.kotlin/
+local.properties
+*.apk
+*.log
 TestResults/
 *.user
 *.suo

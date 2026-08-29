@@ -5,22 +5,34 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
 using ListenSphere.Configuration;
 using ListenSphere.Diagnostics;
 using ListenSphere.Windows.AudioSessions;
+using Microsoft.Win32;
 using Serilog;
 
 namespace ListenSphere.Controller;
 
 public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
+    private static readonly JsonSerializerOptions PresetJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true
+    };
     private readonly IWindowsAudioSessionManager sessionManager;
     private readonly ISettingsStore settingsStore;
     private readonly IDiagnosticsExporter diagnosticsExporter;
     private readonly IDiagnosticEventSink diagnosticEvents;
+    private readonly int controllerProcessId = Environment.ProcessId;
     private readonly Dictionary<string, CancellationTokenSource> volumeDebounce =
+        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, float> localSessionBaseVolumes =
+        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, bool> localSessionBaseMutes =
         new(StringComparer.Ordinal);
     private CancellationTokenSource? settingsDebounce;
     private ListenSphereSettings settings = new();
@@ -30,7 +42,11 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
     private string errorText = string.Empty;
     private string sceneStatusText = "保存当前声道、输出设备和主音量，随时一键恢复。";
     private string diagnosticStatusText = "诊断包不包含音频、会话密钥、证书或可信设备记录。";
+    private string senderStatusText = "发送端未启动";
+    private float localPeakPercent;
     private bool isFirstRunGuideVisible;
+    private bool isSystemSoundEditorOpen;
+    private bool applyingLocalSourceControl;
     private bool initialized;
     private bool disposed;
 
@@ -46,6 +62,7 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         this.diagnosticsExporter = diagnosticsExporter;
         this.diagnosticEvents = diagnosticEvents;
         Network = network;
+        Network.LocalSourceControlChanged += OnLocalSourceControlChanged;
         RefreshCommand = new AsyncRelayCommand(RefreshAsync);
         SaveSceneCommand = new AsyncRelayCommand(SaveSceneAsync);
         ApplySceneCommand = new AsyncRelayCommand(
@@ -54,8 +71,19 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         DeleteSceneCommand = new AsyncRelayCommand(
             DeleteSelectedSceneAsync,
             () => SelectedScene is not null);
+        RenameSceneCommand = new AsyncRelayCommand(
+            RenameSelectedSceneAsync,
+            () => SelectedScene is not null && !string.IsNullOrWhiteSpace(NewSceneName));
+        DuplicateSceneCommand = new AsyncRelayCommand(
+            DuplicateSelectedSceneAsync,
+            () => SelectedScene is not null);
+        ImportSceneCommand = new AsyncRelayCommand(ImportSceneAsync);
+        ExportSceneCommand = new AsyncRelayCommand(
+            ExportSelectedSceneAsync,
+            () => SelectedScene is not null);
         FinishGuideCommand = new AsyncRelayCommand(FinishGuideAsync);
         ExportDiagnosticsCommand = new AsyncRelayCommand(ExportDiagnosticsAsync);
+        EnableSenderCommand = new AsyncRelayCommand(EnableSenderAsync);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -67,8 +95,13 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
     public AsyncRelayCommand SaveSceneCommand { get; }
     public AsyncRelayCommand ApplySceneCommand { get; }
     public AsyncRelayCommand DeleteSceneCommand { get; }
+    public AsyncRelayCommand RenameSceneCommand { get; }
+    public AsyncRelayCommand DuplicateSceneCommand { get; }
+    public AsyncRelayCommand ImportSceneCommand { get; }
+    public AsyncRelayCommand ExportSceneCommand { get; }
     public AsyncRelayCommand FinishGuideCommand { get; }
     public AsyncRelayCommand ExportDiagnosticsCommand { get; }
+    public AsyncRelayCommand EnableSenderCommand { get; }
 
     public string StatusText
     {
@@ -94,10 +127,28 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         private set => SetField(ref diagnosticStatusText, value);
     }
 
+    public string SenderStatusText
+    {
+        get => senderStatusText;
+        private set => SetField(ref senderStatusText, value);
+    }
+
+    public float LocalPeakPercent
+    {
+        get => localPeakPercent;
+        private set => SetField(ref localPeakPercent, Math.Clamp(value, 0, 100));
+    }
+
     public string NewSceneName
     {
         get => newSceneName;
-        set => SetField(ref newSceneName, value);
+        set
+        {
+            if (SetField(ref newSceneName, value))
+            {
+                RenameSceneCommand.RaiseCanExecuteChanged();
+            }
+        }
     }
 
     public SceneSettings? SelectedScene
@@ -109,6 +160,9 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
             {
                 ApplySceneCommand.RaiseCanExecuteChanged();
                 DeleteSceneCommand.RaiseCanExecuteChanged();
+                RenameSceneCommand.RaiseCanExecuteChanged();
+                DuplicateSceneCommand.RaiseCanExecuteChanged();
+                ExportSceneCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -117,6 +171,12 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
     {
         get => isFirstRunGuideVisible;
         private set => SetField(ref isFirstRunGuideVisible, value);
+    }
+
+    public bool IsSystemSoundEditorOpen
+    {
+        get => isSystemSoundEditorOpen;
+        set => SetField(ref isSystemSoundEditorOpen, value);
     }
 
     public async Task InitializeAsync()
@@ -157,7 +217,18 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         await Network.InitializeAsync(
             settings.PlaybackDeviceId,
             settings.MasterVolume,
-            settings.FollowSystemDefaultPlayback);
+            settings.FollowSystemDefaultPlayback,
+            settings.AutomaticRoutingEnabled,
+            settings.AudioRoutingRules,
+            settings.ChannelLayouts,
+            settings.AudioOutputRoutes,
+            settings.MicrophoneOutputDeviceId,
+            settings.MicrophoneOutputVolume,
+            settings.MicrophoneOutputMuted,
+            settings.MicrophoneMonitoringEnabled,
+            settings.LocalSourceVolume,
+            settings.LocalSourceMuted,
+            settings.MicrophoneMonitoringDeviceId);
         sessionManager.SessionsChanged += OnSessionsChanged;
         sessionManager.MonitoringFailed += OnMonitoringFailed;
         await RefreshAsync();
@@ -175,6 +246,7 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         sessionManager.SessionsChanged -= OnSessionsChanged;
         sessionManager.MonitoringFailed -= OnMonitoringFailed;
         Network.AudioSettingsChanged -= OnAudioSettingsChanged;
+        Network.LocalSourceControlChanged -= OnLocalSourceControlChanged;
         foreach (CancellationTokenSource cancellation in volumeDebounce.Values)
         {
             cancellation.Cancel();
@@ -202,6 +274,7 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
     {
         try
         {
+            await Network.RefreshAsync();
             IReadOnlyList<WindowsAudioSession> sessions =
                 await sessionManager.GetSessionsAsync(CancellationToken.None);
             ApplySessions(sessions);
@@ -227,7 +300,8 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
             CaptureChannels(),
             Network.SelectedPlaybackDevice?.Id,
             Network.MasterVolumePercent / 100,
-            Network.FollowSystemDefaultPlayback);
+            Network.FollowSystemDefaultPlayback,
+            Network.CaptureGroupBusSettings());
         if (existing is not null)
         {
             int index = Scenes.IndexOf(existing);
@@ -269,7 +343,8 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
             scene.PlaybackDeviceId,
             scene.MasterVolume,
             scene.FollowSystemDefaultPlayback,
-            scene.Channels);
+            scene.Channels,
+            scene.GroupBuses ?? []);
         if (await TryPersistSettingsAsync())
         {
             SceneStatusText = $"已恢复场景“{scene.Name}”。未运行的应用将在下次保存时更新。";
@@ -291,11 +366,258 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         }
     }
 
+    private async Task RenameSelectedSceneAsync()
+    {
+        if (SelectedScene is not { } scene || string.IsNullOrWhiteSpace(NewSceneName))
+        {
+            return;
+        }
+        string name = NewSceneName.Trim();
+        if (Scenes.Any(item => item.SceneId != scene.SceneId &&
+            string.Equals(item.Name, name, StringComparison.CurrentCultureIgnoreCase)))
+        {
+            SceneStatusText = $"已有名为“{name}”的预设。";
+            return;
+        }
+        int index = Scenes.IndexOf(scene);
+        SceneSettings renamed = scene with { Name = name };
+        Scenes[index] = renamed;
+        SelectedScene = renamed;
+        NewSceneName = string.Empty;
+        if (await TryPersistSettingsAsync())
+        {
+            SceneStatusText = $"预设已重命名为“{name}”。";
+        }
+    }
+
+    private async Task DuplicateSelectedSceneAsync()
+    {
+        if (SelectedScene is not { } scene)
+        {
+            return;
+        }
+        string baseName = string.IsNullOrWhiteSpace(NewSceneName)
+            ? $"{scene.Name} 副本"
+            : NewSceneName.Trim();
+        string name = CreateUniqueSceneName(baseName);
+        SceneSettings copy = scene with { SceneId = Guid.NewGuid(), Name = name };
+        Scenes.Add(copy);
+        SelectedScene = copy;
+        NewSceneName = string.Empty;
+        if (await TryPersistSettingsAsync())
+        {
+            SceneStatusText = $"已复制预设“{scene.Name}”为“{name}”。";
+        }
+    }
+
+    private async Task ImportSceneAsync()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "导入聆界调音预设",
+            Filter = "聆界预设 (*.json)|*.json|所有文件 (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+        try
+        {
+            await using FileStream stream = File.OpenRead(dialog.FileName);
+            SceneSettings imported = await JsonSerializer.DeserializeAsync<SceneSettings>(
+                stream,
+                PresetJsonOptions,
+                CancellationToken.None) ?? throw new InvalidDataException("预设内容为空。");
+            SceneSettings normalized = NormalizeImportedScene(imported);
+            Scenes.Add(normalized);
+            SelectedScene = normalized;
+            if (await TryPersistSettingsAsync())
+            {
+                SceneStatusText = $"已导入预设“{normalized.Name}”。";
+            }
+        }
+        catch (Exception exception) when (
+            exception is IOException or JsonException or InvalidDataException or NotSupportedException)
+        {
+            SceneStatusText = $"导入预设失败：{exception.Message}";
+        }
+    }
+
+    private async Task ExportSelectedSceneAsync()
+    {
+        if (SelectedScene is not { } scene)
+        {
+            return;
+        }
+        var dialog = new SaveFileDialog
+        {
+            Title = "导出聆界调音预设",
+            Filter = "聆界预设 (*.json)|*.json",
+            FileName = $"{SanitizeFileName(scene.Name)}.json",
+            AddExtension = true,
+            DefaultExt = ".json"
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+        try
+        {
+            await using FileStream stream = new(
+                dialog.FileName,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                4096,
+                FileOptions.Asynchronous);
+            await JsonSerializer.SerializeAsync(
+                stream,
+                scene,
+                PresetJsonOptions,
+                CancellationToken.None);
+            SceneStatusText = $"已导出预设“{scene.Name}”。";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            SceneStatusText = $"导出预设失败：{exception.Message}";
+        }
+    }
+
+    private SceneSettings NormalizeImportedScene(SceneSettings scene)
+    {
+        if (string.IsNullOrWhiteSpace(scene.Name))
+        {
+            throw new InvalidDataException("预设缺少名称。");
+        }
+        ChannelSettings[] channels = (scene.Channels ?? [])
+            .Where(channel => channel.ChannelId != Guid.Empty)
+            .Take(256)
+            .Select(channel => channel with
+            {
+                DisplayName = string.IsNullOrWhiteSpace(channel.DisplayName)
+                    ? "未命名声道"
+                    : channel.DisplayName.Trim(),
+                Volume = Math.Clamp(channel.Volume, 0f, 1f),
+                PreampDb = Math.Clamp(channel.PreampDb, -24f, 12f),
+                NoiseGateThresholdDb = Math.Clamp(channel.NoiseGateThresholdDb, -80f, -10f),
+                CompressorThresholdDb = Math.Clamp(channel.CompressorThresholdDb, -40f, 0f),
+                CompressorRatio = Math.Clamp(channel.CompressorRatio, 1f, 20f),
+                LimiterCeilingDb = Math.Clamp(channel.LimiterCeilingDb, -12f, -0.1f),
+                VoiceDuckingReductionDb = Math.Clamp(channel.VoiceDuckingReductionDb, 0f, 30f),
+                EqualizerGains = channel.EqualizerGains is { Length: 10 }
+                    ? channel.EqualizerGains.Select(value => Math.Clamp(value, -20f, 20f)).ToArray()
+                    : null
+            })
+            .ToArray();
+        return scene with
+        {
+            SceneId = Guid.NewGuid(),
+            Name = CreateUniqueSceneName(scene.Name.Trim()),
+            Channels = channels,
+            MasterVolume = Math.Clamp(scene.MasterVolume, 0f, 1f)
+        };
+    }
+
+    private string CreateUniqueSceneName(string baseName)
+    {
+        string candidate = baseName;
+        for (var suffix = 2; Scenes.Any(scene =>
+                 string.Equals(scene.Name, candidate, StringComparison.CurrentCultureIgnoreCase)); suffix++)
+        {
+            candidate = $"{baseName} {suffix}";
+        }
+        return candidate;
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        char[] invalid = Path.GetInvalidFileNameChars();
+        string sanitized = new(name.Select(character => invalid.Contains(character) ? '_' : character).ToArray());
+        return string.IsNullOrWhiteSpace(sanitized) ? "ListenSphere-Preset" : sanitized;
+    }
+
     private async Task FinishGuideAsync()
     {
         IsFirstRunGuideVisible = false;
         settings = settings with { FirstRunCompleted = true };
         await TryPersistSettingsAsync();
+    }
+
+    private Task EnableSenderAsync()
+    {
+        try
+        {
+            Process? running = Process.GetProcessesByName("ListenSphere.Sender")
+                .FirstOrDefault();
+            if (running is not null)
+            {
+                if (running.MainWindowHandle != IntPtr.Zero)
+                {
+                    NativeWindowActivation.ShowWindow(running.MainWindowHandle, 9);
+                    NativeWindowActivation.SetForegroundWindow(running.MainWindowHandle);
+                }
+
+                Network.GenerateCodeCommand.Execute(null);
+                SenderStatusText = "已唤醒 Sender，并生成一次性配对码";
+                return Task.CompletedTask;
+            }
+
+            string? senderPath = FindSenderExecutable();
+            if (senderPath is null)
+            {
+                throw new FileNotFoundException(
+                    "未找到 ListenSphere Sender。请将 Sender 安装在 Controller 同目录或相邻 Sender 目录。");
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = senderPath,
+                WorkingDirectory = Path.GetDirectoryName(senderPath)!,
+                UseShellExecute = true
+            });
+            Network.GenerateCodeCommand.Execute(null);
+            SenderStatusText = "已启动 Sender，并生成一次性配对码";
+            ErrorText = string.Empty;
+        }
+        catch (Exception exception)
+        {
+            SenderStatusText = "Sender 启动失败";
+            ErrorText = $"无法启用发送连接：{exception.Message}";
+            Log.Error(exception, "Failed to launch ListenSphere Sender");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static string? FindSenderExecutable()
+    {
+        string baseDirectory = AppContext.BaseDirectory;
+        var candidates = new List<string>
+        {
+            Path.Combine(baseDirectory, "ListenSphere.Sender.exe"),
+            Path.GetFullPath(Path.Combine(baseDirectory, "..", "Sender", "ListenSphere.Sender.exe"))
+        };
+
+        for (DirectoryInfo? directory = new(baseDirectory);
+             directory is not null;
+             directory = directory.Parent)
+        {
+            foreach (string configuration in new[] { "Release", "Debug" })
+            {
+                candidates.Add(Path.Combine(
+                    directory.FullName,
+                    "apps",
+                    "ListenSphere.Sender",
+                    "bin",
+                    configuration,
+                    "net10.0-windows",
+                    "ListenSphere.Sender.exe"));
+            }
+        }
+
+        return candidates.FirstOrDefault(File.Exists);
     }
 
     private async Task ExportDiagnosticsAsync()
@@ -343,7 +665,22 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
                 channel.ChannelId,
                 channel.DisplayName,
                 channel.VolumePercent / 100,
-                channel.IsMuted));
+                channel.IsMuted,
+                channel.SelectedEqualizerPreset.Name,
+                channel.EqualizerGains.ToArray(),
+                channel.IsEqualizerEnabled,
+                channel.SelectedChannelGroup,
+                channel.PreampDb,
+                channel.NoiseGateEnabled,
+                channel.NoiseGateThresholdDb,
+                channel.CompressorEnabled,
+                channel.CompressorThresholdDb,
+                channel.CompressorRatio,
+                channel.LimiterEnabled,
+                channel.LimiterCeilingDb,
+                channel.IsVoiceDuckingTrigger,
+                channel.IsVoiceDuckingTarget,
+                channel.VoiceDuckingReductionDb));
         return local.Concat(remote).ToArray();
     }
 
@@ -393,7 +730,18 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
             MasterVolume = Network.MasterVolumePercent / 100,
             FirstRunCompleted = !IsFirstRunGuideVisible,
             Scenes = Scenes.ToArray(),
-            PairedDeviceIds = Network.TrustedDevices.Select(device => device.DeviceId).ToArray()
+            PairedDeviceIds = Network.TrustedDevices.Select(device => device.DeviceId).ToArray(),
+            AutomaticRoutingEnabled = Network.AutomaticRoutingEnabled,
+            AudioRoutingRules = Network.CaptureRoutingRules(),
+            ChannelLayouts = Network.CaptureChannelLayouts(),
+            AudioOutputRoutes = Network.CaptureOutputRoutes(),
+            MicrophoneOutputDeviceId = Network.SelectedMicrophoneOutputDevice?.Id,
+            MicrophoneOutputVolume = Network.MicrophoneOutputVolumePercent / 100,
+            MicrophoneOutputMuted = Network.MicrophoneOutputMuted,
+            MicrophoneMonitoringEnabled = Network.MicrophoneMonitoringEnabled,
+            MicrophoneMonitoringDeviceId = Network.SelectedMicrophoneMonitoringDevice?.Id,
+            LocalSourceVolume = Network.LocalSourceVolumePercent / 100,
+            LocalSourceMuted = Network.IsLocalSourceMuted
         };
         await settingsStore.SaveAsync(settings, cancellationToken);
     }
@@ -418,6 +766,38 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         _ = Application.Current.Dispatcher.BeginInvoke(() => ApplySessions(args.Sessions));
     }
 
+    private void OnLocalSourceControlChanged(object? sender, EventArgs args)
+    {
+        applyingLocalSourceControl = true;
+        try
+        {
+            float gain = Network.LocalSourceVolumePercent / 100;
+            foreach (AudioSessionItemViewModel session in Sessions)
+            {
+                if (!localSessionBaseVolumes.TryGetValue(session.SessionId, out float baseVolume))
+                {
+                    baseVolume = gain > 0.001f
+                        ? Math.Clamp(session.VolumePercent / gain, 0, 100)
+                        : session.VolumePercent;
+                    localSessionBaseVolumes[session.SessionId] = baseVolume;
+                }
+
+                if (!localSessionBaseMutes.TryGetValue(session.SessionId, out bool baseMuted))
+                {
+                    baseMuted = session.IsMuted && !Network.IsLocalSourceMuted;
+                    localSessionBaseMutes[session.SessionId] = baseMuted;
+                }
+
+                session.VolumePercent = baseVolume * gain;
+                session.IsMuted = baseMuted || Network.IsLocalSourceMuted;
+            }
+        }
+        finally
+        {
+            applyingLocalSourceControl = false;
+        }
+    }
+
     private void OnMonitoringFailed(object? sender, AudioSessionMonitoringFailedEventArgs args)
     {
         _ = Application.Current.Dispatcher.BeginInvoke(() =>
@@ -429,7 +809,13 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
 
     private void ApplySessions(IReadOnlyList<WindowsAudioSession> snapshots)
     {
-        HashSet<string> liveIds = snapshots.Select(snapshot => snapshot.SessionId)
+        WindowsAudioSession[] visibleSnapshots = snapshots
+            .Where(snapshot => snapshot.ProcessId != controllerProcessId)
+            .ToArray();
+        LocalPeakPercent = visibleSnapshots.Length == 0
+            ? 0
+            : visibleSnapshots.Max(snapshot => snapshot.Peak) * 100;
+        HashSet<string> liveIds = visibleSnapshots.Select(snapshot => snapshot.SessionId)
             .ToHashSet(StringComparer.Ordinal);
         for (var index = Sessions.Count - 1; index >= 0; index--)
         {
@@ -439,19 +825,38 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
             }
 
             CancelPendingVolume(Sessions[index].SessionId);
+            localSessionBaseVolumes.Remove(Sessions[index].SessionId);
+            localSessionBaseMutes.Remove(Sessions[index].SessionId);
             Sessions.RemoveAt(index);
         }
 
-        foreach (WindowsAudioSession snapshot in snapshots)
+        foreach (WindowsAudioSession snapshot in visibleSnapshots)
         {
             AudioSessionItemViewModel? existing = Sessions.FirstOrDefault(
                 item => string.Equals(item.SessionId, snapshot.SessionId, StringComparison.Ordinal));
             if (existing is null)
             {
-                Sessions.Add(new AudioSessionItemViewModel(
+                localSessionBaseVolumes[snapshot.SessionId] = snapshot.Volume * 100;
+                localSessionBaseMutes[snapshot.SessionId] = snapshot.IsMuted;
+                var item = new AudioSessionItemViewModel(
                     snapshot,
                     QueueVolumeChange,
-                    SetMute));
+                    SetMute);
+                Sessions.Add(item);
+                float gain = Network.LocalSourceVolumePercent / 100;
+                if (Math.Abs(gain - 1f) > 0.001f || Network.IsLocalSourceMuted)
+                {
+                    applyingLocalSourceControl = true;
+                    try
+                    {
+                        item.VolumePercent = snapshot.Volume * 100 * gain;
+                        item.IsMuted = snapshot.IsMuted || Network.IsLocalSourceMuted;
+                    }
+                    finally
+                    {
+                        applyingLocalSourceControl = false;
+                    }
+                }
             }
             else
             {
@@ -469,6 +874,14 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
 
     private void QueueVolumeChange(string sessionId, float volume)
     {
+        if (!applyingLocalSourceControl)
+        {
+            float gain = Network.LocalSourceVolumePercent / 100;
+            localSessionBaseVolumes[sessionId] = gain > 0.001f
+                ? Math.Clamp(volume * 100 / gain, 0, 100)
+                : volume * 100;
+        }
+
         CancelPendingVolume(sessionId);
         var cancellation = new CancellationTokenSource();
         volumeDebounce[sessionId] = cancellation;
@@ -506,7 +919,15 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         }
     }
 
-    private void SetMute(string sessionId, bool isMuted) => _ = SetMuteAsync(sessionId, isMuted);
+    private void SetMute(string sessionId, bool isMuted)
+    {
+        if (!applyingLocalSourceControl)
+        {
+            localSessionBaseMutes[sessionId] = isMuted;
+        }
+
+        _ = SetMuteAsync(sessionId, isMuted);
+    }
 
     private async Task SetMuteAsync(string sessionId, bool isMuted)
     {
@@ -545,6 +966,7 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
 
 public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
 {
+    private const long VolumeSnapshotGuardMilliseconds = 1500;
     private readonly Action<string, float> volumeChanged;
     private readonly Action<string, bool> muteChanged;
     private bool applyingSnapshot;
@@ -555,6 +977,9 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
     private bool isActive;
     private float peakPercent;
     private ImageSource? icon;
+    private bool isEditorOpen;
+    private float? pendingVolumePercent;
+    private long volumeSnapshotGuardUntil;
 
     public AudioSessionItemViewModel(
         WindowsAudioSession snapshot,
@@ -570,6 +995,11 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public string SessionId { get; }
+    public bool IsEditorOpen
+    {
+        get => isEditorOpen;
+        set => SetField(ref isEditorOpen, value);
+    }
 
     public string DisplayName
     {
@@ -599,6 +1029,9 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
             float normalized = Math.Clamp(value, 0, 100);
             if (SetField(ref volumePercent, normalized) && !applyingSnapshot)
             {
+                pendingVolumePercent = normalized;
+                volumeSnapshotGuardUntil =
+                    Environment.TickCount64 + VolumeSnapshotGuardMilliseconds;
                 volumeChanged(SessionId, normalized / 100);
             }
         }
@@ -665,7 +1098,7 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
         {
             DisplayName = snapshot.DisplayName;
             ProcessId = snapshot.ProcessId;
-            VolumePercent = snapshot.Volume * 100;
+            ApplySnapshotVolume(snapshot.Volume * 100);
             IsMuted = snapshot.IsMuted;
             IsActive = snapshot.IsActive;
             PeakPercent = snapshot.Peak * 100;
@@ -675,6 +1108,26 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
         {
             applyingSnapshot = false;
         }
+    }
+
+    private void ApplySnapshotVolume(float snapshotVolumePercent)
+    {
+        float normalized = Math.Clamp(snapshotVolumePercent, 0, 100);
+        bool guardActive =
+            pendingVolumePercent.HasValue &&
+            Environment.TickCount64 <= volumeSnapshotGuardUntil;
+        bool confirmsPendingValue =
+            pendingVolumePercent.HasValue &&
+            Math.Abs(normalized - pendingVolumePercent.Value) <= 0.5f;
+
+        if (guardActive && !confirmsPendingValue)
+        {
+            return;
+        }
+
+        pendingVolumePercent = null;
+        volumeSnapshotGuardUntil = 0;
+        VolumePercent = normalized;
     }
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)

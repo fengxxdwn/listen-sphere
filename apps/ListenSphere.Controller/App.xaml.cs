@@ -7,7 +7,9 @@ using ListenSphere.Diagnostics;
 using ListenSphere.Network;
 using ListenSphere.Windows.Audio;
 using ListenSphere.Windows.AudioSessions;
+using ListenSphere.Windows.Bluetooth;
 using ListenSphere.Windows.Devices;
+using ListenSphere.Windows.Usb;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 
@@ -58,7 +60,10 @@ public partial class App : Application
             .AddSingleton<ControllerNetworkViewModel>()
             .AddSingleton<IAudioDeviceManager, WasapiAudioDeviceManager>()
             .AddSingleton<IAudioOutputVolumeController, WasapiOutputVolumeController>()
+            .AddSingleton<IWasapiCaptureSourceFactory, WasapiCaptureSourceFactory>()
             .AddSingleton<IWindowsDeviceNotificationSource, WasapiDeviceNotificationSource>()
+            .AddSingleton<BluetoothRfcommProbeHost>()
+            .AddSingleton<UsbAccessoryHost>()
             .AddSingleton<IWindowsAudioSessionManager, WasapiAudioSessionManager>()
             .AddSingleton<ControllerViewModel>()
             .AddSingleton<MainWindow>()

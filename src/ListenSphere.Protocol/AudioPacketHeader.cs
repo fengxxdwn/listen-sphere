@@ -12,12 +12,18 @@ public enum AudioPacketFlags : ushort
 public enum AudioCodec : byte
 {
     PcmFloat32 = 1,
-    Opus = 2
+    Opus = 2,
+    PcmInt16 = 3,
+    ImaAdpcm = 4,
+    AacLc = 5,
+    Sbc = 6,
+    Ldac = 7
 }
 
 public enum AudioPacketSampleFormat : byte
 {
-    Float32LittleEndian = 1
+    Float32LittleEndian = 1,
+    Int16LittleEndian = 2
 }
 
 public enum AudioPacketReadError
@@ -207,4 +213,3 @@ public readonly record struct AudioPacketHeader
         }
     }
 }
-

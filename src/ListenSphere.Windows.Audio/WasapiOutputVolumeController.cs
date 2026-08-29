@@ -28,4 +28,26 @@ public sealed class WasapiOutputVolumeController : IAudioOutputVolumeController
         device.AudioEndpointVolume.MasterVolumeLevelScalar = Math.Clamp(volume, 0f, 1f);
         return ValueTask.CompletedTask;
     }
+
+    public ValueTask<bool> GetMuteAsync(
+        string deviceId,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var enumerator = new MMDeviceEnumerator();
+        using var device = enumerator.GetDevice(deviceId);
+        return ValueTask.FromResult(device.AudioEndpointVolume.Mute);
+    }
+
+    public ValueTask SetMuteAsync(
+        string deviceId,
+        bool isMuted,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var enumerator = new MMDeviceEnumerator();
+        using var device = enumerator.GetDevice(deviceId);
+        device.AudioEndpointVolume.Mute = isMuted;
+        return ValueTask.CompletedTask;
+    }
 }

@@ -13,12 +13,56 @@ using ListenSphere.Protocol.V1;
 
 namespace ListenSphere.Network;
 
+public static class ControlTransportPreface
+{
+    public const int Size = 5;
+
+    public static bool TryParse(ReadOnlySpan<byte> value, out string transport)
+    {
+        transport = "Wireless";
+        if (value.Length != Size || !value[..4].SequenceEqual("LSTH"u8))
+        {
+            return false;
+        }
+
+        transport = value[4] switch
+        {
+            3 => "Wired",
+            2 => "Bluetooth",
+            _ => "Wireless"
+        };
+        return true;
+    }
+}
+
 public sealed record ControlPeerEvent(
     DeviceDescriptor? Device,
     DeviceConnectionState State,
     string Message,
     DateTimeOffset Timestamp,
-    Guid? AudioSessionId = null);
+    Guid? AudioSessionId = null,
+    string Transport = "Wireless",
+    Guid? ChannelId = null,
+    string? SourceName = null,
+    string? SourceKind = null);
+
+public sealed record OpenedAudioStream(
+    Guid ChannelId,
+    string SourceId,
+    string DisplayName,
+    string SourceKind,
+    AudioSessionParameters Session);
+
+public static class AudioStreamIdentity
+{
+    public static Guid CreateChannelId(Guid deviceId, string sourceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceId);
+        byte[] identity = System.Text.Encoding.UTF8.GetBytes(
+            $"ListenSphere/remote/{deviceId:D}/{sourceId.Trim().ToUpperInvariant()}");
+        return new Guid(SHA256.HashData(identity).AsSpan(0, 16));
+    }
+}
 
 public sealed class ListenSphereControlServer : IAsyncDisposable
 {
@@ -26,7 +70,7 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
     private readonly ITrustedDeviceStore trustStore;
     private readonly PairingCodeService pairingCodes;
     private readonly UdpAudioReceiver audioReceiver = new();
-    private readonly ConcurrentDictionary<Guid, TcpClient> clients = new();
+    private readonly ConcurrentDictionary<Guid, ControlServerClient> clients = new();
     private readonly ConcurrentDictionary<long, Task> clientHandlers = new();
     private readonly CancellationTokenSource lifetime = new();
     private TcpListener? listener;
@@ -72,9 +116,27 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         await trustStore.RemoveAsync(deviceId, cancellationToken).ConfigureAwait(false);
-        if (clients.TryRemove(deviceId, out TcpClient? client))
+        if (clients.TryRemove(deviceId, out ControlServerClient? client))
         {
-            client.Dispose();
+            await DisconnectClientAsync(
+                client,
+                ErrorCode.NotPaired,
+                "主控端已撤销此设备的信任。",
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async ValueTask DisconnectDeviceAsync(
+        Guid deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (clients.TryRemove(deviceId, out ControlServerClient? client))
+        {
+            await DisconnectClientAsync(
+                client,
+                ErrorCode.Unspecified,
+                "主控端已断开本次连接，设备信任仍保留。",
+                cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -145,11 +207,12 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
     {
         DeviceDescriptor? remoteDevice = null;
         AudioSessionParameters? audioSession = null;
+        var additionalSessions = new Dictionary<uint, AdditionalServerAudioStream>();
+        ControlServerClient? registeredClient = null;
+        string connectionTransport = await ReadConnectionTransportAsync(client, cancellationToken)
+            .ConfigureAwait(false);
         using (client)
-        await using (var ssl = new SslStream(
-            client.GetStream(),
-            false,
-            static (_, certificate, _, _) => certificate is not null))
+        await using (var ssl = new SslStream(client.GetStream(), false))
         {
             try
             {
@@ -157,13 +220,15 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
                     new SslServerAuthenticationOptions
                     {
                         ServerCertificate = identity.Certificate,
-                        ClientCertificateRequired = true,
+                        // TLS 1.3 client-certificate post-handshake authentication is not
+                        // interoperable with every Android Conscrypt build. Device ownership
+                        // is proven inside the TLS channel with a signed HelloRequest instead.
+                        ClientCertificateRequired = false,
                         EnabledSslProtocols = SslProtocols.Tls13,
                         CertificateRevocationCheckMode = X509RevocationMode.NoCheck
                     },
                     cancellationToken).ConfigureAwait(false);
 
-                byte[] tlsFingerprint = GetRemoteFingerprint(ssl);
                 Envelope? helloEnvelope = await ControlFrameCodec.ReadAsync(ssl, cancellationToken)
                     .ConfigureAwait(false);
                 if (helloEnvelope?.HelloRequest?.Device is not { } remoteIdentity)
@@ -175,6 +240,10 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
                         cancellationToken).ConfigureAwait(false);
                     return;
                 }
+
+                byte[] deviceFingerprint = DeviceProof.Validate(
+                    helloEnvelope.HelloRequest,
+                    identity.CertificateFingerprint);
 
                 if (!ProtocolConstants.IsCompatible(helloEnvelope.Version))
                 {
@@ -189,7 +258,7 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
 
                 remoteDevice = ProtocolIdentity.ToDescriptor(remoteIdentity);
                 if (!CryptographicOperations.FixedTimeEquals(
-                    tlsFingerprint,
+                    deviceFingerprint,
                     remoteIdentity.CertificateFingerprint.Span))
                 {
                     await SendDisconnectAsync(
@@ -204,7 +273,7 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
                     remoteDevice.DeviceId,
                     cancellationToken).ConfigureAwait(false);
                 bool paired = trusted is not null &&
-                    FingerprintMatches(trusted.CertificateFingerprint, tlsFingerprint);
+                    FingerprintMatches(trusted.CertificateFingerprint, deviceFingerprint);
                 await SendHelloAsync(
                     ssl,
                     helloEnvelope.RequestId,
@@ -217,7 +286,7 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
                     paired = await CompletePairingAsync(
                         ssl,
                         remoteDevice,
-                        tlsFingerprint,
+                        deviceFingerprint,
                         cancellationToken).ConfigureAwait(false);
                     if (!paired)
                     {
@@ -225,13 +294,27 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
                     }
                 }
 
+                DateTimeOffset connectedAt = DateTimeOffset.UtcNow;
+                await trustStore.UpsertAsync(
+                    new TrustedDevice(
+                        remoteDevice.DeviceId,
+                        remoteDevice.DisplayName,
+                        remoteDevice.Platform.ToString(),
+                        (ulong)remoteDevice.Capabilities,
+                        Convert.ToHexString(deviceFingerprint),
+                        trusted?.PairedAt ?? connectedAt,
+                        connectedAt,
+                        connectionTransport),
+                    cancellationToken).ConfigureAwait(false);
+
+                registeredClient = new ControlServerClient(client, ssl);
                 clients.AddOrUpdate(
                     remoteDevice.DeviceId,
-                    client,
+                    registeredClient,
                     (_, previous) =>
                     {
-                        previous.Dispose();
-                        return client;
+                        previous.Client.Dispose();
+                        return registeredClient;
                     });
                 PeerChanged?.Invoke(
                     this,
@@ -239,7 +322,8 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
                         remoteDevice,
                         DeviceConnectionState.Connected,
                         "控制通道已通过 TLS 1.3 认证。",
-                        DateTimeOffset.UtcNow));
+                        DateTimeOffset.UtcNow,
+                        Transport: connectionTransport));
 
                 IPAddress remoteAddress = ((IPEndPoint)client.Client.RemoteEndPoint!).Address;
                 audioSession = CreateAudioSession(remoteAddress);
@@ -253,9 +337,18 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
                         DeviceConnectionState.Streaming,
                         "远程音频流已就绪。",
                         DateTimeOffset.UtcNow,
-                        audioSession.SessionId));
+                        audioSession.SessionId,
+                        connectionTransport,
+                        SourceName: helloEnvelope.HelloRequest.SourceName,
+                        SourceKind: helloEnvelope.HelloRequest.SourceKind));
 
-                await ProcessMessagesAsync(ssl, cancellationToken).ConfigureAwait(false);
+                await ProcessMessagesAsync(
+                    ssl,
+                    remoteDevice,
+                    remoteAddress,
+                    connectionTransport,
+                    additionalSessions,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -265,7 +358,8 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
                         remoteDevice,
                         DeviceConnectionState.Offline,
                         "控制连接已停止。",
-                        DateTimeOffset.UtcNow));
+                        DateTimeOffset.UtcNow,
+                        Transport: connectionTransport));
             }
             catch (Exception exception) when (
                 exception is IOException or AuthenticationException or SocketException or InvalidDataException)
@@ -276,7 +370,8 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
                         remoteDevice,
                         DeviceConnectionState.Faulted,
                         $"控制连接异常：{exception.Message}",
-                        DateTimeOffset.UtcNow));
+                        DateTimeOffset.UtcNow,
+                        Transport: connectionTransport));
             }
             finally
             {
@@ -285,10 +380,32 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
                     audioReceiver.RemoveSession(audioSession.SessionId);
                 }
 
+                foreach (AdditionalServerAudioStream additional in additionalSessions.Values)
+                {
+                    audioReceiver.RemoveSession(additional.Session.SessionId);
+                    PeerChanged?.Invoke(
+                        this,
+                        new ControlPeerEvent(
+                            remoteDevice,
+                            DeviceConnectionState.Offline,
+                            $"应用声道已关闭：{additional.DisplayName}",
+                            DateTimeOffset.UtcNow,
+                            additional.Session.SessionId,
+                            connectionTransport,
+                            additional.ChannelId,
+                            additional.DisplayName,
+                            additional.SourceKind));
+                }
+
                 if (remoteDevice is not null)
                 {
-                    clients.TryRemove(
-                        new KeyValuePair<Guid, TcpClient>(remoteDevice.DeviceId, client));
+                    if (registeredClient is not null)
+                    {
+                        clients.TryRemove(
+                            new KeyValuePair<Guid, ControlServerClient>(
+                                remoteDevice.DeviceId,
+                                registeredClient));
+                    }
                     PeerChanged?.Invoke(
                         this,
                         new ControlPeerEvent(
@@ -296,10 +413,35 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
                             DeviceConnectionState.Offline,
                             "设备控制连接已断开。",
                             DateTimeOffset.UtcNow,
-                            audioSession?.SessionId));
+                            audioSession?.SessionId,
+                            connectionTransport));
                 }
             }
         }
+    }
+
+    private static async ValueTask<string> ReadConnectionTransportAsync(
+        TcpClient client,
+        CancellationToken cancellationToken)
+    {
+        byte[] firstByte = new byte[1];
+        int received = await client.Client.ReceiveAsync(
+            firstByte,
+            SocketFlags.Peek,
+            cancellationToken).ConfigureAwait(false);
+        if (received == 0 || firstByte[0] != (byte)'L')
+        {
+            return "Wireless";
+        }
+
+        byte[] preface = new byte[ControlTransportPreface.Size];
+        await client.GetStream().ReadExactlyAsync(preface, cancellationToken).ConfigureAwait(false);
+        if (!ControlTransportPreface.TryParse(preface, out string transport))
+        {
+            throw new InvalidDataException("ListenSphere transport preface is invalid.");
+        }
+
+        return transport;
     }
 
     private AudioSessionParameters CreateAudioSession(IPAddress remoteAddress) =>
@@ -328,22 +470,24 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         Envelope envelope = ProtocolConstants.CreateEnvelope(0);
-        envelope.StartStream = new StartStream
-        {
-            StreamId = session.StreamId,
-            Codec = (uint)AudioCodec.PcmFloat32,
-            SampleRate = session.SampleRate,
-            ChannelCount = session.ChannelCount,
-            FrameDurationMs = 10,
-            SessionId = ByteString.CopyFrom(session.SessionId.ToByteArray()),
-            SessionKey = ByteString.CopyFrom(session.Key),
-            SessionSalt = ByteString.CopyFrom(session.Salt),
-            UdpPort = checked((uint)audioReceiver.Port),
-            FrameSamples = session.FrameSamples
-        };
+        envelope.StartStream = CreateStartStream(session);
         await ControlFrameCodec.WriteAsync(stream, envelope, cancellationToken)
             .ConfigureAwait(false);
     }
+
+    private StartStream CreateStartStream(AudioSessionParameters session) => new()
+    {
+        StreamId = session.StreamId,
+        Codec = (uint)AudioCodec.PcmFloat32,
+        SampleRate = session.SampleRate,
+        ChannelCount = session.ChannelCount,
+        FrameDurationMs = 10,
+        SessionId = ByteString.CopyFrom(session.SessionId.ToByteArray()),
+        SessionKey = ByteString.CopyFrom(session.Key),
+        SessionSalt = ByteString.CopyFrom(session.Salt),
+        UdpPort = checked((uint)audioReceiver.Port),
+        FrameSamples = session.FrameSamples
+    };
 
     private async ValueTask<bool> CompletePairingAsync(
         Stream stream,
@@ -363,7 +507,9 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
             return false;
         }
 
-        PairingCodeValidation result = pairingCodes.ValidateAndConsume(pairRequest.OneTimeCode);
+        PairingCodeValidation result = pairingCodes.ValidateAndConsume(
+            pairRequest.OneTimeCode,
+            $"Wireless:{remoteDevice.DeviceId:D}");
         ErrorCode error = result switch
         {
             PairingCodeValidation.Accepted => ErrorCode.Unspecified,
@@ -399,8 +545,12 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
         return accepted;
     }
 
-    private static async Task ProcessMessagesAsync(
+    private async Task ProcessMessagesAsync(
         Stream stream,
+        DeviceDescriptor remoteDevice,
+        IPAddress remoteAddress,
+        string transport,
+        Dictionary<uint, AdditionalServerAudioStream> additionalSessions,
         CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -429,6 +579,89 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
                 {
                     EchoMonotonicMilliseconds = heartbeat.MonotonicMilliseconds,
                     ResponderMonotonicMilliseconds = checked((ulong)Environment.TickCount64)
+                };
+                await ControlFrameCodec.WriteAsync(stream, acknowledgement, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else if (message.OpenAudioStream is { } open)
+            {
+                string sourceId = open.SourceId.Trim();
+                string displayName = open.DisplayName.Trim();
+                string sourceKind = open.SourceKind.Trim().ToLowerInvariant();
+                Envelope response = ProtocolConstants.CreateEnvelope(message.RequestId);
+                if (sourceId.Length is 0 or > 512 || displayName.Length is 0 or > 128 ||
+                    sourceKind is not ("application" or "system"))
+                {
+                    response.AudioStreamOpened = new AudioStreamOpened
+                    {
+                        SourceId = sourceId,
+                        DisplayName = displayName,
+                        SourceKind = sourceKind,
+                        Error = ErrorCode.StreamRejected
+                    };
+                }
+                else
+                {
+                    AudioSessionParameters session = CreateAudioSession(remoteAddress);
+                    Guid channelId = AudioStreamIdentity.CreateChannelId(
+                        remoteDevice.DeviceId,
+                        sourceId);
+                    var additional = new AdditionalServerAudioStream(
+                        channelId,
+                        sourceId,
+                        displayName,
+                        sourceKind,
+                        session);
+                    additionalSessions.Add(session.StreamId, additional);
+                    audioReceiver.RegisterSession(session);
+                    response.AudioStreamOpened = new AudioStreamOpened
+                    {
+                        SourceId = sourceId,
+                        DisplayName = displayName,
+                        SourceKind = sourceKind,
+                        ChannelId = ByteString.CopyFrom(channelId.ToByteArray()),
+                        Stream = CreateStartStream(session),
+                        Error = ErrorCode.Unspecified
+                    };
+                    PeerChanged?.Invoke(
+                        this,
+                        new ControlPeerEvent(
+                            remoteDevice,
+                            DeviceConnectionState.Streaming,
+                            $"应用声道已就绪：{displayName}",
+                            DateTimeOffset.UtcNow,
+                            session.SessionId,
+                            transport,
+                            channelId,
+                            displayName,
+                            sourceKind));
+                }
+                await ControlFrameCodec.WriteAsync(stream, response, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else if (message.CloseAudioStream is { } close)
+            {
+                if (additionalSessions.Remove(close.StreamId, out AdditionalServerAudioStream? closed))
+                {
+                    audioReceiver.RemoveSession(closed.Session.SessionId);
+                    PeerChanged?.Invoke(
+                        this,
+                        new ControlPeerEvent(
+                            remoteDevice,
+                            DeviceConnectionState.Offline,
+                            $"应用声道已关闭：{closed.DisplayName}",
+                            DateTimeOffset.UtcNow,
+                            closed.Session.SessionId,
+                            transport,
+                            closed.ChannelId,
+                            closed.DisplayName,
+                            closed.SourceKind));
+                }
+                Envelope acknowledgement = ProtocolConstants.CreateEnvelope(message.RequestId);
+                acknowledgement.StopStream = new StopStream
+                {
+                    StreamId = close.StreamId,
+                    Reason = close.Reason
                 };
                 await ControlFrameCodec.WriteAsync(stream, acknowledgement, cancellationToken)
                     .ConfigureAwait(false);
@@ -470,11 +703,42 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
             .ConfigureAwait(false);
     }
 
-    private static byte[] GetRemoteFingerprint(SslStream stream)
+    private static async ValueTask DisconnectClientAsync(
+        ControlServerClient client,
+        ErrorCode error,
+        string reason,
+        CancellationToken cancellationToken)
     {
-        X509Certificate certificate = stream.RemoteCertificate
-            ?? throw new AuthenticationException("The remote endpoint did not provide a certificate.");
-        return SHA256.HashData(certificate.GetRawCertData());
+        try
+        {
+            await SendDisconnectAsync(client.Stream, error, reason, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (
+            exception is IOException or SocketException or ObjectDisposedException or
+                OperationCanceledException)
+        {
+            client.Client.Dispose();
+            return;
+        }
+
+        // Do not close immediately after the TLS write. The mobile heartbeat reader
+        // may be between requests; keeping the full-duplex connection alive lets it
+        // consume the framed Disconnect instead of observing an ambiguous EOF. A
+        // bounded fallback still releases peers that never read the notification.
+        _ = DisposeAfterDisconnectGraceAsync(client);
+    }
+
+    private static async Task DisposeAfterDisconnectGraceAsync(ControlServerClient client)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(7)).ConfigureAwait(false);
+            client.Client.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     private static bool FingerprintMatches(string expectedHex, ReadOnlySpan<byte> actual)
@@ -500,9 +764,9 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
 
         await lifetime.CancelAsync().ConfigureAwait(false);
         listener?.Stop();
-        foreach (TcpClient client in clients.Values)
+        foreach (ControlServerClient client in clients.Values)
         {
-            client.Dispose();
+            client.Client.Dispose();
         }
 
         if (acceptLoop is not null)
@@ -521,6 +785,15 @@ public sealed class ListenSphereControlServer : IAsyncDisposable
         lifetime.Dispose();
     }
 }
+
+internal sealed record ControlServerClient(TcpClient Client, SslStream Stream);
+
+internal sealed record AdditionalServerAudioStream(
+    Guid ChannelId,
+    string SourceId,
+    string DisplayName,
+    string SourceKind,
+    AudioSessionParameters Session);
 
 public enum ControlClientOutcome
 {
@@ -545,6 +818,7 @@ public sealed class ListenSphereControlClient : IAsyncDisposable
     private readonly LocalDeviceIdentity identity;
     private readonly ITrustedDeviceStore trustStore;
     private readonly CancellationTokenSource lifetime = new();
+    private readonly SemaphoreSlim controlExchangeGate = new(1, 1);
     private TcpClient? tcpClient;
     private SslStream? stream;
     private Task? heartbeatLoop;
@@ -601,12 +875,10 @@ public sealed class ListenSphereControlClient : IAsyncDisposable
                 return trusted is null ||
                     FingerprintMatches(trusted.CertificateFingerprint, remoteFingerprint);
             });
-        var certificates = new X509CertificateCollection { identity.Certificate };
         await stream.AuthenticateAsClientAsync(
             new SslClientAuthenticationOptions
             {
                 TargetHost = $"ListenSphere-{discovered.Device.DeviceId:N}",
-                ClientCertificates = certificates,
                 EnabledSslProtocols = SslProtocols.Tls13,
                 CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
                 RemoteCertificateValidationCallback = null
@@ -614,7 +886,10 @@ public sealed class ListenSphereControlClient : IAsyncDisposable
             cancellationToken).ConfigureAwait(false);
 
         Envelope hello = NextEnvelope();
-        hello.HelloRequest = new HelloRequest { Device = identity.ToProtocolIdentity() };
+        hello.HelloRequest = DeviceProof.Create(
+            identity,
+            remoteFingerprint ?? throw new AuthenticationException(
+                "Controller did not provide a TLS identity."));
         await ControlFrameCodec.WriteAsync(stream, hello, cancellationToken)
             .ConfigureAwait(false);
         Envelope response = await ControlFrameCodec.ReadAsync(stream, cancellationToken)
@@ -760,12 +1035,28 @@ public sealed class ListenSphereControlClient : IAsyncDisposable
                     MonotonicMilliseconds = checked((ulong)Environment.TickCount64)
                 };
                 long sentAt = Stopwatch.GetTimestamp();
-                await ControlFrameCodec.WriteAsync(stream!, heartbeat, cancellationToken)
-                    .ConfigureAwait(false);
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeout.CancelAfter(TimeSpan.FromSeconds(6));
-                Envelope? response = await ControlFrameCodec.ReadAsync(stream!, timeout.Token)
-                    .ConfigureAwait(false);
+                await controlExchangeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                Envelope? response;
+                try
+                {
+                    await ControlFrameCodec.WriteAsync(stream!, heartbeat, cancellationToken)
+                        .ConfigureAwait(false);
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(6));
+                    response = await ControlFrameCodec.ReadAsync(stream!, timeout.Token)
+                        .ConfigureAwait(false);
+                }
+                finally
+                {
+                    controlExchangeGate.Release();
+                }
+                if (response?.Disconnect is { } disconnect)
+                {
+                    throw new ControllerRequestedDisconnectException(
+                        disconnect.Reason.Length == 0
+                            ? "Controller requested disconnect."
+                            : disconnect.Reason);
+                }
                 if (response?.HeartbeatAck?.EchoMonotonicMilliseconds !=
                     heartbeat.Heartbeat.MonotonicMilliseconds)
                 {
@@ -788,6 +1079,16 @@ public sealed class ListenSphereControlClient : IAsyncDisposable
                     "心跳已停止。",
                     DateTimeOffset.UtcNow));
         }
+        catch (ControllerRequestedDisconnectException exception)
+        {
+            StateChanged?.Invoke(
+                this,
+                new ControlPeerEvent(
+                    controller,
+                    DeviceConnectionState.Offline,
+                    exception.Message,
+                    DateTimeOffset.UtcNow));
+        }
         catch (Exception exception) when (
             exception is IOException or SocketException or InvalidDataException or OperationCanceledException)
         {
@@ -799,6 +1100,98 @@ public sealed class ListenSphereControlClient : IAsyncDisposable
                     DeviceConnectionState.Faulted,
                     $"心跳中断：{exception.Message}",
                     DateTimeOffset.UtcNow));
+        }
+    }
+
+    public async ValueTask<OpenedAudioStream> OpenAudioStreamAsync(
+        string sourceId,
+        string displayName,
+        string sourceKind = "application",
+        CancellationToken cancellationToken = default)
+    {
+        if (stream is null || controller is null || connectionLifetime is null)
+        {
+            throw new InvalidOperationException("Controller control channel is not connected.");
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
+        Envelope request = NextEnvelope();
+        request.OpenAudioStream = new OpenAudioStream
+        {
+            SourceId = sourceId,
+            DisplayName = displayName,
+            SourceKind = sourceKind
+        };
+
+        await controlExchangeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await ControlFrameCodec.WriteAsync(stream, request, cancellationToken)
+                .ConfigureAwait(false);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(5));
+            Envelope response = await ControlFrameCodec.ReadAsync(stream, timeout.Token)
+                .ConfigureAwait(false)
+                ?? throw new EndOfStreamException("Controller closed while opening an audio stream.");
+            AudioStreamOpened opened = response.AudioStreamOpened
+                ?? throw new InvalidDataException("Controller returned an invalid stream response.");
+            if (opened.Error != ErrorCode.Unspecified || opened.ChannelId.Length != 16)
+            {
+                throw new InvalidOperationException(
+                    $"Controller rejected source '{displayName}': {opened.Error}.");
+            }
+
+            AudioSessionParameters session = ParseAudioSession(
+                opened.Stream,
+                ((IPEndPoint)tcpClient!.Client.RemoteEndPoint!).Address);
+            return new OpenedAudioStream(
+                new Guid(opened.ChannelId.Span),
+                opened.SourceId,
+                opened.DisplayName,
+                opened.SourceKind,
+                session);
+        }
+        finally
+        {
+            controlExchangeGate.Release();
+        }
+    }
+
+    public async ValueTask CloseAudioStreamAsync(
+        uint streamId,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        if (stream is null || streamId == 0)
+        {
+            return;
+        }
+
+        Envelope request = NextEnvelope();
+        request.CloseAudioStream = new CloseAudioStream
+        {
+            StreamId = streamId,
+            Reason = reason
+        };
+        await controlExchangeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await ControlFrameCodec.WriteAsync(stream, request, cancellationToken)
+                .ConfigureAwait(false);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+            Envelope response = await ControlFrameCodec.ReadAsync(stream, timeout.Token)
+                .ConfigureAwait(false)
+                ?? throw new EndOfStreamException("Controller closed while closing an audio stream.");
+            if (response.StopStream?.StreamId != streamId)
+            {
+                throw new InvalidDataException("Controller returned an invalid close response.");
+            }
+        }
+        finally
+        {
+            controlExchangeGate.Release();
         }
     }
 
@@ -878,6 +1271,10 @@ public sealed class ListenSphereControlClient : IAsyncDisposable
 
         await lifetime.CancelAsync().ConfigureAwait(false);
         await DisconnectAsync().ConfigureAwait(false);
+        controlExchangeGate.Dispose();
         lifetime.Dispose();
     }
 }
+
+internal sealed class ControllerRequestedDisconnectException(string message)
+    : IOException(message);

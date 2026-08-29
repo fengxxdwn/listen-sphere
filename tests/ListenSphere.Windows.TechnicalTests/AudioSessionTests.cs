@@ -1,10 +1,41 @@
 using ListenSphere.Windows.AudioSessions;
+using ListenSphere.Controller;
 using Xunit;
 
 namespace ListenSphere.Windows.TechnicalTests;
 
 public sealed class AudioSessionTests
 {
+    [Fact]
+    public void SessionVolume_IgnoresStaleSnapshotUntilWindowsConfirmsUserValue()
+    {
+        var snapshot = new WindowsAudioSession(
+            "session-1",
+            42,
+            "播放器",
+            null,
+            null,
+            0.5f,
+            false,
+            true,
+            0.25f);
+        float requestedVolume = 0;
+        var item = new AudioSessionItemViewModel(
+            snapshot,
+            (_, volume) => requestedVolume = volume,
+            (_, _) => { });
+
+        item.VolumePercent = 80;
+        item.Update(snapshot);
+
+        Assert.Equal(0.8f, requestedVolume, 3);
+        Assert.Equal(80, item.VolumePercent);
+
+        item.Update(snapshot with { Volume = 0.8f });
+
+        Assert.Equal(80, item.VolumePercent);
+    }
+
     [Theory]
     [InlineData("Browser", false, "File", "process", 42, "Browser")]
     [InlineData("", false, "File Description", "process", 42, "File Description")]

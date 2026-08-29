@@ -5,6 +5,7 @@
   <ItemGroup>
     <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
     <PackageVersion Include="Grpc.Tools" Version="2.83.0" />
+    <PackageVersion Include="InTheHand.Net.Bluetooth" Version="4.2.4" />
     <PackageVersion Include="MeaMod.DNS" Version="1.0.71" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
