@@ -106,7 +106,7 @@ public sealed record SceneSettings(
 
 public sealed record ListenSphereSettings
 {
-    public const int CurrentVersion = 14;
+    public const int CurrentVersion = 15;
 
     public int Version { get; init; } = CurrentVersion;
     public string? PlaybackDeviceId { get; init; }
@@ -125,6 +125,8 @@ public sealed record ListenSphereSettings
     public IReadOnlyList<ChannelLayoutSettings> ChannelLayouts { get; init; } = [];
     public IReadOnlyList<AudioOutputRouteSettings> AudioOutputRoutes { get; init; } = [];
     public string? MicrophoneOutputDeviceId { get; init; }
+    public bool MicrophoneOutputEnabled { get; init; }
+    public string? ComputerMicrophoneDeviceId { get; init; }
     public float MicrophoneOutputVolume { get; init; } = 1f;
     public bool MicrophoneOutputMuted { get; init; }
     public bool MicrophoneMonitoringEnabled { get; init; }

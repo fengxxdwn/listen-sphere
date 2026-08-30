@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Interop;
 using ListenSphere.Windows.Devices;
 using System.ComponentModel;
+using System.Diagnostics;
 using Serilog;
 
 namespace ListenSphere.Controller;
@@ -116,6 +117,81 @@ public partial class MainWindow : Window
 
     private void LocalSource_MouseMove(object sender, MouseEventArgs args) =>
         RemoteSource_MouseMove(sender, args);
+
+    private void LocalApplicationSource_PreviewMouseLeftButtonDown(
+        object sender,
+        MouseButtonEventArgs args)
+    {
+        sourceDragStart = args.GetPosition(this);
+        AudioSessionItemViewModel? session =
+            (sender as FrameworkElement)?.DataContext as AudioSessionItemViewModel;
+        sourceDragChannelId = session?.CanRouteToListenSphere == true
+            ? session.RoutingChannelId
+            : null;
+        sourceDragAllowed = sourceDragChannelId is not null &&
+            !IsInteractiveControl(args.OriginalSource);
+    }
+
+    private void LocalApplicationSource_MouseMove(object sender, MouseEventArgs args) =>
+        RemoteSource_MouseMove(sender, args);
+
+    private void OpenWindowsAppVolumeSettings_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("ms-settings:apps-volume")
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception exception)
+        {
+            Log.Warning(exception, "Failed to open Windows app volume settings");
+            viewModel.ReportError($"无法打开 Windows 应用音量设置：{exception.Message}");
+        }
+    }
+
+    private void OpenSelectedMicrophoneSettings_Click(object sender, RoutedEventArgs args)
+    {
+        var device = viewModel.Network.SelectedComputerMicrophoneDevice;
+        if (device is null)
+        {
+            return;
+        }
+
+        try
+        {
+            string endpointId = Uri.EscapeDataString(device.Id);
+            Process.Start(new ProcessStartInfo(
+                $"ms-settings:sound-properties?endpointId={endpointId}")
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception exception)
+        {
+            Log.Warning(
+                exception,
+                "Failed to open Windows microphone settings for {DeviceId}",
+                device.Id);
+            viewModel.ReportError($"无法打开所选麦克风的 Windows 设置：{exception.Message}");
+        }
+    }
+
+    private async void AddApplicationOutput_Click(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not AudioSessionItemViewModel
+            {
+                SelectedAdditionalOutput: { } output
+            } session)
+        {
+            return;
+        }
+
+        await viewModel.Network.AddSecondaryOutputRouteAsync(
+            session.RoutingChannelId,
+            output.DeviceId);
+    }
 
     private void RemoteSource_MouseMove(object sender, MouseEventArgs args)
     {

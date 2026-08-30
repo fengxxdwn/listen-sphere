@@ -115,6 +115,8 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         private set => SetField(ref errorText, value);
     }
 
+    public void ReportError(string message) => ErrorText = message;
+
     public string SceneStatusText
     {
         get => sceneStatusText;
@@ -228,7 +230,9 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
             settings.MicrophoneMonitoringEnabled,
             settings.LocalSourceVolume,
             settings.LocalSourceMuted,
-            settings.MicrophoneMonitoringDeviceId);
+            settings.MicrophoneMonitoringDeviceId,
+            settings.MicrophoneOutputEnabled,
+            settings.ComputerMicrophoneDeviceId);
         sessionManager.SessionsChanged += OnSessionsChanged;
         sessionManager.MonitoringFailed += OnMonitoringFailed;
         await RefreshAsync();
@@ -329,9 +333,11 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
 
         foreach (AudioSessionItemViewModel session in Sessions)
         {
-            Guid channelId = CreateLocalChannelId(session.DisplayName);
+            Guid channelId = session.RoutingChannelId;
             ChannelSettings? saved = scene.Channels.FirstOrDefault(
-                channel => channel.ChannelId == channelId);
+                channel => channel.ChannelId == channelId) ??
+                scene.Channels.FirstOrDefault(channel =>
+                    channel.ChannelId == CreateLocalChannelId(session.DisplayName));
             if (saved is not null)
             {
                 session.VolumePercent = saved.Volume * 100;
@@ -650,7 +656,7 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
     private IReadOnlyList<ChannelSettings> CaptureChannels()
     {
         IEnumerable<ChannelSettings> local = Sessions
-            .GroupBy(session => CreateLocalChannelId(session.DisplayName))
+            .GroupBy(session => session.RoutingChannelId)
             .Select(group =>
             {
                 AudioSessionItemViewModel session = group.First();
@@ -691,7 +697,33 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         return new Guid(hash.AsSpan(0, 16));
     }
 
-    private void OnAudioSettingsChanged(object? sender, EventArgs args) => QueueSettingsSave();
+    private void OnAudioSettingsChanged(object? sender, EventArgs args)
+    {
+        RefreshLocalApplicationRoutes();
+        QueueSettingsSave();
+    }
+
+    private void RefreshLocalApplicationRoutes()
+    {
+        foreach (AudioSessionItemViewModel session in Sessions)
+        {
+            IReadOnlyList<ControllerNetworkViewModel.ApplicationOutputRouteInfo> routes =
+                Network.GetApplicationOutputRoutes(session.RoutingChannelId);
+            HashSet<string> routedDeviceIds = routes
+                .Select(route => route.DeviceId)
+                .ToHashSet(StringComparer.Ordinal);
+            session.ReplaceAdditionalOutputRoutes(
+                routes,
+                Network.AdditionalOutputs
+                    .Where(device => !routedDeviceIds.Contains(device.DeviceId))
+                    .Select(device => new AvailableApplicationOutputDeviceItemViewModel(
+                        device.DeviceId,
+                        device.DisplayName))
+                    .ToArray(),
+                (channelId, deviceId) =>
+                    Network.RemoveSecondaryOutputRouteAsync(channelId, deviceId));
+        }
+    }
 
     private void QueueSettingsSave()
     {
@@ -736,6 +768,8 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
             ChannelLayouts = Network.CaptureChannelLayouts(),
             AudioOutputRoutes = Network.CaptureOutputRoutes(),
             MicrophoneOutputDeviceId = Network.SelectedMicrophoneOutputDevice?.Id,
+            MicrophoneOutputEnabled = Network.MicrophoneOutputEnabled,
+            ComputerMicrophoneDeviceId = Network.SelectedComputerMicrophoneDevice?.Id,
             MicrophoneOutputVolume = Network.MicrophoneOutputVolumePercent / 100,
             MicrophoneOutputMuted = Network.MicrophoneOutputMuted,
             MicrophoneMonitoringEnabled = Network.MicrophoneMonitoringEnabled,
@@ -810,7 +844,9 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
     private void ApplySessions(IReadOnlyList<WindowsAudioSession> snapshots)
     {
         WindowsAudioSession[] visibleSnapshots = snapshots
-            .Where(snapshot => snapshot.ProcessId != controllerProcessId)
+            .Where(snapshot =>
+                snapshot.ProcessId > 0 &&
+                snapshot.ProcessId != controllerProcessId)
             .ToArray();
         LocalPeakPercent = visibleSnapshots.Length == 0
             ? 0
@@ -824,10 +860,15 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
                 continue;
             }
 
+            Guid routingChannelId = Sessions[index].RoutingChannelId;
             CancelPendingVolume(Sessions[index].SessionId);
             localSessionBaseVolumes.Remove(Sessions[index].SessionId);
             localSessionBaseMutes.Remove(Sessions[index].SessionId);
             Sessions.RemoveAt(index);
+            if (!Sessions.Any(item => item.RoutingChannelId == routingChannelId))
+            {
+                _ = Network.UnregisterLocalApplicationSourceAsync(routingChannelId);
+            }
         }
 
         foreach (WindowsAudioSession snapshot in visibleSnapshots)
@@ -843,6 +884,11 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
                     QueueVolumeChange,
                     SetMute);
                 Sessions.Add(item);
+                Network.RegisterLocalApplicationSource(
+                    item.RoutingChannelId,
+                    item.ProcessId,
+                    item.DisplayName,
+                    item.ApplicationIdentityKey);
                 float gain = Network.LocalSourceVolumePercent / 100;
                 if (Math.Abs(gain - 1f) > 0.001f || Network.IsLocalSourceMuted)
                 {
@@ -861,8 +907,15 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
             else
             {
                 existing.Update(snapshot);
+                Network.RegisterLocalApplicationSource(
+                    existing.RoutingChannelId,
+                    existing.ProcessId,
+                    existing.DisplayName,
+                    existing.ApplicationIdentityKey);
             }
         }
+
+        RefreshLocalApplicationRoutes();
 
         int activeCount = Sessions.Count(session => session.IsActive);
         StatusText = $"本机 {Sessions.Count} 个应用声道 · {activeCount} 个正在发声";
@@ -978,6 +1031,8 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
     private float peakPercent;
     private ImageSource? icon;
     private bool isEditorOpen;
+    private string? outputDeviceName;
+    private AvailableApplicationOutputDeviceItemViewModel? selectedAdditionalOutput;
     private float? pendingVolumePercent;
     private long volumeSnapshotGuardUntil;
 
@@ -987,6 +1042,8 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
         Action<string, bool> muteChanged)
     {
         SessionId = snapshot.SessionId;
+        ApplicationIdentityKey = ResolveApplicationIdentity(snapshot);
+        RoutingChannelId = CreateStableRoutingChannelId(ApplicationIdentityKey);
         this.volumeChanged = volumeChanged;
         this.muteChanged = muteChanged;
         displayName = snapshot.DisplayName;
@@ -995,6 +1052,21 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public string SessionId { get; }
+    public string ApplicationIdentityKey { get; }
+    public Guid RoutingChannelId { get; }
+    public bool CanRouteToListenSphere => ProcessId > 0;
+    public ObservableCollection<LocalApplicationOutputRouteItemViewModel>
+        AdditionalOutputRoutes { get; } = [];
+    public ObservableCollection<AvailableApplicationOutputDeviceItemViewModel>
+        AvailableAdditionalOutputs { get; } = [];
+    public AvailableApplicationOutputDeviceItemViewModel? SelectedAdditionalOutput
+    {
+        get => selectedAdditionalOutput;
+        set => SetField(ref selectedAdditionalOutput, value);
+    }
+    public string AdditionalOutputSummary => AdditionalOutputRoutes.Count == 0
+        ? "尚未添加聆界附加输出"
+        : $"已添加 {AdditionalOutputRoutes.Count} 个附加输出";
     public bool IsEditorOpen
     {
         get => isEditorOpen;
@@ -1020,6 +1092,9 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
     }
 
     public string ProcessText => ProcessId > 0 ? $"PID {ProcessId}" : "Windows";
+    public string WindowsOutputText => string.IsNullOrWhiteSpace(outputDeviceName)
+        ? "Windows 输出：未知设备"
+        : $"Windows 输出：{outputDeviceName}";
 
     public float VolumePercent
     {
@@ -1103,10 +1178,65 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
             IsActive = snapshot.IsActive;
             PeakPercent = snapshot.Peak * 100;
             Icon = ApplicationIconLoader.Load(snapshot.ProcessPath, snapshot.IconPath);
+            if (!string.Equals(outputDeviceName, snapshot.OutputDeviceName, StringComparison.Ordinal))
+            {
+                outputDeviceName = snapshot.OutputDeviceName;
+                OnPropertyChanged(nameof(WindowsOutputText));
+            }
         }
         finally
         {
             applyingSnapshot = false;
+        }
+    }
+
+    public void ReplaceAdditionalOutputRoutes(
+        IReadOnlyList<ControllerNetworkViewModel.ApplicationOutputRouteInfo> routes,
+        IReadOnlyList<AvailableApplicationOutputDeviceItemViewModel> availableDevices,
+        Func<Guid, string, Task> remove)
+    {
+        bool routesChanged = AdditionalOutputRoutes.Count != routes.Count ||
+            AdditionalOutputRoutes.Zip(routes).Any(pair =>
+                !string.Equals(
+                    pair.First.DeviceId,
+                    pair.Second.DeviceId,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    pair.First.DeviceName,
+                    pair.Second.DeviceName,
+                    StringComparison.Ordinal) ||
+                pair.First.IsActive != pair.Second.IsActive);
+        if (routesChanged)
+        {
+            AdditionalOutputRoutes.Clear();
+            foreach (ControllerNetworkViewModel.ApplicationOutputRouteInfo route in routes)
+            {
+                AdditionalOutputRoutes.Add(new LocalApplicationOutputRouteItemViewModel(
+                    RoutingChannelId,
+                    route.DeviceId,
+                    route.DeviceName,
+                    route.IsActive,
+                    remove));
+            }
+
+            OnPropertyChanged(nameof(AdditionalOutputSummary));
+        }
+
+        bool availableDevicesChanged =
+            AvailableAdditionalOutputs.Count != availableDevices.Count ||
+            !AvailableAdditionalOutputs.SequenceEqual(availableDevices);
+        if (availableDevicesChanged)
+        {
+            string? selectedDeviceId = SelectedAdditionalOutput?.DeviceId;
+            AvailableAdditionalOutputs.Clear();
+            foreach (AvailableApplicationOutputDeviceItemViewModel device in availableDevices)
+            {
+                AvailableAdditionalOutputs.Add(device);
+            }
+
+            SelectedAdditionalOutput = AvailableAdditionalOutputs.FirstOrDefault(device =>
+                string.Equals(device.DeviceId, selectedDeviceId, StringComparison.Ordinal)) ??
+                AvailableAdditionalOutputs.FirstOrDefault();
         }
     }
 
@@ -1130,6 +1260,31 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
         VolumePercent = normalized;
     }
 
+    private static string ResolveApplicationIdentity(WindowsAudioSession snapshot)
+    {
+        if (!string.IsNullOrWhiteSpace(snapshot.ProcessPath))
+        {
+            try
+            {
+                return $"path:{Path.GetFullPath(snapshot.ProcessPath).ToUpperInvariant()}";
+            }
+            catch (Exception) when (
+                snapshot.ProcessPath.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
+            {
+                // Fall back to the display identity below for protected/system sessions.
+            }
+        }
+
+        string prefix = snapshot.ProcessId > 0 ? "app" : "system";
+        return $"{prefix}:{snapshot.DisplayName.Trim().ToUpperInvariant()}";
+    }
+
+    private static Guid CreateStableRoutingChannelId(string identityKey)
+    {
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(identityKey));
+        return new Guid(hash.AsSpan(0, 16));
+    }
+
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))
@@ -1145,3 +1300,29 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
+
+public sealed class LocalApplicationOutputRouteItemViewModel
+{
+    public LocalApplicationOutputRouteItemViewModel(
+        Guid channelId,
+        string deviceId,
+        string deviceName,
+        bool isActive,
+        Func<Guid, string, Task> remove)
+    {
+        DeviceId = deviceId;
+        DeviceName = deviceName;
+        IsActive = isActive;
+        RemoveCommand = new AsyncRelayCommand(() => remove(channelId, DeviceId));
+    }
+
+    public string DeviceId { get; }
+    public string DeviceName { get; }
+    public bool IsActive { get; }
+    public string StatusText => IsActive ? "正在输出" : "等待设备恢复";
+    public AsyncRelayCommand RemoveCommand { get; }
+}
+
+public sealed record AvailableApplicationOutputDeviceItemViewModel(
+    string DeviceId,
+    string DeviceName);

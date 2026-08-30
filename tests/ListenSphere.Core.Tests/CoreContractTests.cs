@@ -37,6 +37,7 @@ public sealed class CoreContractTests
         Assert.Equal(ListenSphereSettings.CurrentVersion, settings.Version);
         Assert.Empty(settings.Scenes);
         Assert.Empty(settings.PairedDeviceIds);
+        Assert.False(settings.MicrophoneOutputEnabled);
     }
 
     [Fact]
@@ -78,6 +79,8 @@ public sealed class CoreContractTests
             SenderCaptureMode = "system",
             SenderCaptureDeviceId = "  endpoint-sender  ",
             MicrophoneOutputDeviceId = "  cable-input  ",
+            MicrophoneOutputEnabled = true,
+            ComputerMicrophoneDeviceId = "  computer-microphone  ",
             MicrophoneOutputVolume = 1.5f,
             MicrophoneOutputMuted = true,
             MicrophoneMonitoringEnabled = true,
@@ -141,6 +144,8 @@ public sealed class CoreContractTests
             Assert.Equal("system", actual.SenderCaptureMode);
             Assert.Equal("endpoint-sender", actual.SenderCaptureDeviceId);
             Assert.Equal("cable-input", actual.MicrophoneOutputDeviceId);
+            Assert.True(actual.MicrophoneOutputEnabled);
+            Assert.Equal("computer-microphone", actual.ComputerMicrophoneDeviceId);
             Assert.Equal(1f, actual.MicrophoneOutputVolume);
             Assert.True(actual.MicrophoneOutputMuted);
             Assert.True(actual.MicrophoneMonitoringEnabled);

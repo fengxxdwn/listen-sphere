@@ -61,6 +61,8 @@ public partial class App : Application
             .AddSingleton<IAudioDeviceManager, WasapiAudioDeviceManager>()
             .AddSingleton<IAudioOutputVolumeController, WasapiOutputVolumeController>()
             .AddSingleton<IWasapiCaptureSourceFactory, WasapiCaptureSourceFactory>()
+            .AddSingleton<IWasapiRecordingCaptureSourceFactory, WasapiRecordingCaptureSourceFactory>()
+            .AddSingleton<IProcessLoopbackCaptureSourceFactory, ProcessLoopbackCaptureSourceFactory>()
             .AddSingleton<IWindowsDeviceNotificationSource, WasapiDeviceNotificationSource>()
             .AddSingleton<BluetoothRfcommProbeHost>()
             .AddSingleton<UsbAccessoryHost>()

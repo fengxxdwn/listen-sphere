@@ -142,43 +142,52 @@ public sealed class WasapiAudioSessionManager : IWindowsAudioSessionManager
     private static IReadOnlyList<WindowsAudioSession> ReadSessions()
     {
         using var enumerator = new MMDeviceEnumerator();
-        if (!enumerator.HasDefaultAudioEndpoint(DataFlow.Render, Role.Console))
+        var devices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+        var sessions = new List<WindowsAudioSession>();
+        foreach (MMDevice device in devices)
         {
-            return [];
-        }
-
-        using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
-        var manager = device.AudioSessionManager;
-        try
-        {
-            manager.RefreshSessions();
-            var collection = manager.Sessions;
-            var sessions = new List<WindowsAudioSession>(collection.Count);
-            for (var index = 0; index < collection.Count; index++)
+            using (device)
             {
-                using var session = collection[index];
-                if (session.State == AudioSessionState.AudioSessionStateExpired)
+                var manager = device.AudioSessionManager;
+                try
                 {
-                    continue;
+                    manager.RefreshSessions();
+                    var collection = manager.Sessions;
+                    for (var index = 0; index < collection.Count; index++)
+                    {
+                        using var session = collection[index];
+                        if (session.State == AudioSessionState.AudioSessionStateExpired)
+                        {
+                            continue;
+                        }
+
+                        sessions.Add(CreateSnapshot(
+                            session,
+                            device.ID,
+                            string.IsNullOrWhiteSpace(device.FriendlyName)
+                                ? device.DeviceFriendlyName
+                                : device.FriendlyName));
+                    }
                 }
-
-                sessions.Add(CreateSnapshot(session));
+                finally
+                {
+                    manager.Dispose();
+                }
             }
+        }
 
-            return sessions
-                .GroupBy(session => session.SessionId, StringComparer.Ordinal)
-                .Select(group => group.First())
-                .OrderByDescending(session => session.IsActive)
-                .ThenBy(session => session.DisplayName, StringComparer.CurrentCultureIgnoreCase)
-                .ToArray();
-        }
-        finally
-        {
-            manager.Dispose();
-        }
+        return sessions
+            .GroupBy(session => session.SessionId, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .OrderByDescending(session => session.IsActive)
+            .ThenBy(session => session.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
     }
 
-    private static WindowsAudioSession CreateSnapshot(AudioSessionControl session)
+    private static WindowsAudioSession CreateSnapshot(
+        AudioSessionControl session,
+        string outputDeviceId,
+        string outputDeviceName)
     {
         var processId = checked((int)session.GetProcessID);
         var processInfo = GetProcessInfo(processId);
@@ -188,10 +197,11 @@ public sealed class WasapiAudioSessionManager : IWindowsAudioSessionManager
             processInfo.FileDescription,
             processInfo.ProcessName,
             processId);
-        var sessionId =
+        var nativeSessionId =
             NullIfWhiteSpace(session.GetSessionInstanceIdentifier) ??
             NullIfWhiteSpace(session.GetSessionIdentifier) ??
             $"{processId}:{displayName}";
+        var sessionId = $"{outputDeviceId}\u001f{nativeSessionId}";
         using var volume = session.SimpleAudioVolume;
         var state = session.State;
         var peak = state == AudioSessionState.AudioSessionStateExpired
@@ -207,44 +217,56 @@ public sealed class WasapiAudioSessionManager : IWindowsAudioSessionManager
             Math.Clamp(volume.Volume, 0, 1),
             volume.Mute,
             state == AudioSessionState.AudioSessionStateActive && peak > 0.0001f,
-            peak);
+            peak,
+            outputDeviceId,
+            outputDeviceName);
     }
 
     private static void UpdateSession(string sessionId, Action<AudioSessionControl> update)
     {
+        int separator = sessionId.IndexOf('\u001f');
+        string? targetDeviceId = separator >= 0 ? sessionId[..separator] : null;
+        string nativeSessionId = separator >= 0 ? sessionId[(separator + 1)..] : sessionId;
         using var enumerator = new MMDeviceEnumerator();
-        if (!enumerator.HasDefaultAudioEndpoint(DataFlow.Render, Role.Console))
+        var devices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+        foreach (MMDevice device in devices)
         {
-            throw new InvalidOperationException("没有可用的默认输出设备。");
-        }
-
-        using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
-        var manager = device.AudioSessionManager;
-        try
-        {
-            manager.RefreshSessions();
-            var collection = manager.Sessions;
-            for (var index = 0; index < collection.Count; index++)
+            using (device)
             {
-                using var session = collection[index];
-                var candidate =
-                    NullIfWhiteSpace(session.GetSessionInstanceIdentifier) ??
-                    NullIfWhiteSpace(session.GetSessionIdentifier);
-                if (!string.Equals(candidate, sessionId, StringComparison.Ordinal))
+                if (targetDeviceId is not null &&
+                    !string.Equals(device.ID, targetDeviceId, StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                update(session);
-                return;
-            }
+                var manager = device.AudioSessionManager;
+                try
+                {
+                    manager.RefreshSessions();
+                    var collection = manager.Sessions;
+                    for (var index = 0; index < collection.Count; index++)
+                    {
+                        using var session = collection[index];
+                        var candidate =
+                            NullIfWhiteSpace(session.GetSessionInstanceIdentifier) ??
+                            NullIfWhiteSpace(session.GetSessionIdentifier);
+                        if (!string.Equals(candidate, nativeSessionId, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
 
-            throw new InvalidOperationException("音频会话已经结束。");
+                        update(session);
+                        return;
+                    }
+                }
+                finally
+                {
+                    manager.Dispose();
+                }
+            }
         }
-        finally
-        {
-            manager.Dispose();
-        }
+
+        throw new InvalidOperationException("音频会话已经结束。");
     }
 
     private static ProcessInfo GetProcessInfo(int processId)

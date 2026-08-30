@@ -9,7 +9,9 @@ public sealed record WindowsAudioSession(
     float Volume,
     bool IsMuted,
     bool IsActive,
-    float Peak);
+    float Peak,
+    string? OutputDeviceId = null,
+    string? OutputDeviceName = null);
 
 public sealed class AudioSessionsChangedEventArgs(
     IReadOnlyList<WindowsAudioSession> sessions) : EventArgs
@@ -23,7 +25,7 @@ public sealed class AudioSessionMonitoringFailedEventArgs(Exception exception) :
 }
 
 /// <summary>
-/// Enumerates and controls Windows audio sessions on the default render endpoint.
+/// Enumerates and controls Windows audio sessions across active render endpoints.
 /// This controls existing system sessions and does not capture per-application PCM.
 /// </summary>
 public interface IWindowsAudioSessionManager : IAsyncDisposable

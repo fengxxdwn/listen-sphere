@@ -192,6 +192,9 @@ public sealed class JsonSettingsStore(string path) : ISettingsStore
         MicrophoneOutputDeviceId = string.IsNullOrWhiteSpace(settings.MicrophoneOutputDeviceId)
             ? null
             : settings.MicrophoneOutputDeviceId.Trim(),
+        ComputerMicrophoneDeviceId = string.IsNullOrWhiteSpace(settings.ComputerMicrophoneDeviceId)
+            ? null
+            : settings.ComputerMicrophoneDeviceId.Trim(),
         MicrophoneMonitoringDeviceId = string.IsNullOrWhiteSpace(settings.MicrophoneMonitoringDeviceId)
             ? null
             : settings.MicrophoneMonitoringDeviceId.Trim(),

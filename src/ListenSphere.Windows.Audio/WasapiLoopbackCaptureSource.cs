@@ -24,6 +24,16 @@ public sealed class WasapiCaptureSourceFactory : IWasapiCaptureSourceFactory
     public WasapiLoopbackCaptureSource Create(string deviceId) => new(deviceId);
 }
 
+public interface IWasapiRecordingCaptureSourceFactory
+{
+    WasapiLoopbackCaptureSource Create(string deviceId);
+}
+
+public sealed class WasapiRecordingCaptureSourceFactory : IWasapiRecordingCaptureSourceFactory
+{
+    public WasapiLoopbackCaptureSource Create(string deviceId) => new(deviceId, false);
+}
+
 /// <summary>
 /// Captures a selected Windows render endpoint, resamples off the callback thread, and
 /// emits normalized 10 ms frames.
@@ -36,8 +46,9 @@ public sealed class WasapiLoopbackCaptureSource : IAudioCaptureSource
 
     private readonly object gate = new();
     private readonly string deviceId;
+    private readonly bool captureLoopback;
     private MMDevice? captureDevice;
-    private WasapiLoopbackCapture? capture;
+    private WasapiCapture? capture;
     private CancellationTokenSource? lifetime;
     private Channel<PooledCaptureBuffer>? queue;
     private Task? processingTask;
@@ -45,10 +56,11 @@ public sealed class WasapiLoopbackCaptureSource : IAudioCaptureSource
     private long droppedBuffers;
     private bool disposed;
 
-    public WasapiLoopbackCaptureSource(string deviceId)
+    public WasapiLoopbackCaptureSource(string deviceId, bool captureLoopback = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
         this.deviceId = deviceId;
+        this.captureLoopback = captureLoopback;
     }
 
     public event EventHandler<WasapiCaptureStoppedEventArgs>? CaptureStopped;
@@ -97,7 +109,9 @@ public sealed class WasapiLoopbackCaptureSource : IAudioCaptureSource
 
             using var enumerator = new MMDeviceEnumerator();
             captureDevice = enumerator.GetDevice(deviceId);
-            capture = new WasapiLoopbackCapture(captureDevice);
+            capture = captureLoopback
+                ? new WasapiLoopbackCapture(captureDevice)
+                : new WasapiCapture(captureDevice);
             capture.DataAvailable += OnDataAvailable;
             capture.RecordingStopped += OnRecordingStopped;
             processingTask = ProcessAsync(
@@ -113,7 +127,7 @@ public sealed class WasapiLoopbackCaptureSource : IAudioCaptureSource
 
     public async ValueTask StopAsync(CancellationToken cancellationToken)
     {
-        WasapiLoopbackCapture? captureToStop;
+        WasapiCapture? captureToStop;
         Task? taskToWait;
         CancellationTokenSource? lifetimeToDispose;
         Channel<PooledCaptureBuffer>? queueToComplete;

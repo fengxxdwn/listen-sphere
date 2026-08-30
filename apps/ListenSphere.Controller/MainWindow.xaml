@@ -1441,18 +1441,96 @@
                                                Text="&#xE720;" />
                                     <TextBlock Margin="8,0,0,0"
                                                FontWeight="SemiBold"
-                                               Text="麦克风输出" />
+                                               Text="麦克风中枢" />
                                 </StackPanel>
                                 <TextBlock Margin="0,4,0,0"
                                            Foreground="{StaticResource TextSecondaryBrush}"
                                            FontSize="10"
-                                           Text="手机麦克风 → 虚拟录音设备" />
+                                           Text="输入来源 → 聆界 → Windows 录音设备" />
+                                <CheckBox Margin="0,8,0,0"
+                                          Style="{StaticResource FluentSwitchCheckBox}"
+                                          IsChecked="{Binding Network.MicrophoneOutputEnabled, Mode=TwoWay}"
+                                          Content="启用麦克风中枢"
+                                          ToolTip="默认关闭；开启后才会捕获和转发麦克风声音" />
                             </StackPanel>
-                            <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
-                                <ComboBox Height="32"
-                                          ItemsSource="{Binding Network.MicrophoneOutputDevices}"
-                                          SelectedItem="{Binding Network.SelectedMicrophoneOutputDevice}"
-                                          DisplayMemberPath="DisplayName" />
+                            <StackPanel Grid.Column="1"
+                                        Margin="12,0"
+                                        VerticalAlignment="Center"
+                                        IsEnabled="{Binding Network.MicrophoneOutputEnabled}">
+                                <TextBlock Margin="2,0,0,3"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           FontSize="9"
+                                           Text="Windows 默认麦克风输入" />
+                                <Grid Height="32">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="38" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid Margin="0,0,6,0">
+                                        <ComboBox ItemsSource="{Binding Network.RecordingDevices}"
+                                                  SelectedItem="{Binding Network.SelectedComputerMicrophoneDevice}"
+                                                  DisplayMemberPath="DisplayName"
+                                                  ToolTip="选择 Windows 默认麦克风，并将其接入聆界麦克风输出链路" />
+                                        <Border IsHitTestVisible="False"
+                                                BorderBrush="#4C8DFF"
+                                                BorderThickness="1.25"
+                                                CacheMode="BitmapCache"
+                                                CornerRadius="7"
+                                                Opacity="0.035"
+                                                local:AudioGlowBehavior.Level="{Binding Network.ComputerMicrophonePeakPercent}">
+                                            <Border.Effect>
+                                                <DropShadowEffect BlurRadius="14"
+                                                                  Color="#3F83FF"
+                                                                  Direction="0"
+                                                                  Opacity="0.9"
+                                                                  ShadowDepth="0" />
+                                            </Border.Effect>
+                                        </Border>
+                                    </Grid>
+                                    <Button Grid.Column="1"
+                                            Width="32"
+                                            Height="32"
+                                            Click="OpenSelectedMicrophoneSettings_Click"
+                                            ToolTip="打开所选麦克风的 Windows 设置">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Network.SelectedComputerMicrophoneDevice}"
+                                                                 Value="{x:Null}">
+                                                        <Setter Property="IsEnabled" Value="False" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                        <TextBlock Style="{StaticResource IconText}"
+                                                   FontSize="15"
+                                                   Text="&#xE713;" />
+                                    </Button>
+                                </Grid>
+                                <TextBlock Margin="2,7,0,3"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           FontSize="9"
+                                           Text="输出到 Windows 录音设备" />
+                                <Grid Height="32">
+                                    <ComboBox ItemsSource="{Binding Network.MicrophoneOutputDevices}"
+                                              SelectedItem="{Binding Network.SelectedMicrophoneOutputDevice}"
+                                              DisplayMemberPath="DisplayName" />
+                                    <Border IsHitTestVisible="False"
+                                            BorderBrush="#4C8DFF"
+                                            BorderThickness="1.25"
+                                            CacheMode="BitmapCache"
+                                            CornerRadius="7"
+                                            Opacity="0.035"
+                                            local:AudioGlowBehavior.Level="{Binding Network.MicrophoneOutputGlowLevel}">
+                                        <Border.Effect>
+                                            <DropShadowEffect BlurRadius="14"
+                                                              Color="#3F83FF"
+                                                              Direction="0"
+                                                              Opacity="0.9"
+                                                              ShadowDepth="0" />
+                                        </Border.Effect>
+                                    </Border>
+                                </Grid>
                                 <TextBlock Margin="2,5,0,0"
                                            Foreground="{StaticResource TextSecondaryBrush}"
                                            FontSize="9"
@@ -1460,11 +1538,14 @@
                                            TextTrimming="CharacterEllipsis"
                                            ToolTip="{Binding Network.MicrophoneOutputStatus}" />
                             </StackPanel>
-                            <StackPanel Grid.Column="2" Margin="8,0" VerticalAlignment="Center">
+                            <StackPanel Grid.Column="2"
+                                        Margin="8,0"
+                                        VerticalAlignment="Center"
+                                        IsEnabled="{Binding Network.MicrophoneOutputEnabled}">
                                 <Grid>
                                     <TextBlock Foreground="{StaticResource TextSecondaryBrush}"
                                                FontSize="9"
-                                               Text="虚拟麦克风总音量" />
+                                               Text="麦克风中枢总音量" />
                                     <TextBlock HorizontalAlignment="Right"
                                                FontSize="10"
                                                Text="{Binding Network.MicrophoneOutputVolumePercent, StringFormat={}{0:F0}%}" />
@@ -1501,6 +1582,7 @@
                                           Height="34"
                                           VerticalAlignment="Center"
                                           Style="{StaticResource MuteToggleButton}"
+                                          IsEnabled="{Binding Network.MicrophoneOutputEnabled}"
                                           IsChecked="{Binding Network.MicrophoneOutputMuted, Mode=TwoWay}"
                                           ToolTip="静音全部远程麦克风输出">
                                 <TextBlock Style="{StaticResource IconText}"
@@ -1821,7 +1903,10 @@
                                         Background="{StaticResource SurfaceSubtleBrush}"
                                         BorderBrush="Transparent"
                                         BorderThickness="1"
-                                        CornerRadius="10">
+                                        CornerRadius="10"
+                                        PreviewMouseLeftButtonDown="LocalApplicationSource_PreviewMouseLeftButtonDown"
+                                        MouseMove="LocalApplicationSource_MouseMove">
+                                    <StackPanel>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="44" />
@@ -1829,7 +1914,7 @@
                                             <ColumnDefinition Width="1.4*" />
                                             <ColumnDefinition Width="1.7*" />
                                             <ColumnDefinition Width="54" />
-                                            <ColumnDefinition Width="1.2*" />
+                                            <ColumnDefinition Width="80" />
                                             <ColumnDefinition Width="64" />
                                         </Grid.ColumnDefinitions>
                                         <Border Width="34" Height="34" Background="#222A35" CornerRadius="9">
@@ -1860,6 +1945,12 @@
                                                        Foreground="{StaticResource TextSecondaryBrush}"
                                                        FontSize="11"
                                                        Text="{Binding ProcessText}" />
+                                            <TextBlock Margin="0,2,0,0"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       FontSize="10"
+                                                       Text="{Binding WindowsOutputText}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding WindowsOutputText}" />
                                         </StackPanel>
                                         <ProgressBar Grid.Column="2"
                                                      Margin="12,0"
@@ -1876,13 +1967,18 @@
                                                    VerticalAlignment="Center"
                                                    FontFamily="Consolas"
                                                    Text="{Binding VolumePercent, StringFormat={}{0:F0}%}" />
-                                        <TextBlock Grid.Column="5"
-                                                   Margin="12,0"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="{Binding ActivityBrush}"
-                                                   FontSize="11"
-                                                   Text="{Binding ActivityText}"
-                                                   TextTrimming="CharacterEllipsis" />
+                                        <ToggleButton Grid.Column="5"
+                                                Width="72"
+                                                Height="34"
+                                                Style="{StaticResource MuteToggleButton}"
+                                                IsChecked="{Binding IsEditorOpen, Mode=TwoWay}"
+                                                AutomationProperties.Name="展开应用路由"
+                                                ToolTip="查看 Windows 原始路由与聆界附加输出">
+                                            <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                                                <TextBlock Margin="0,0,5,0" Style="{StaticResource IconText}" Text="&#xE8F1;" />
+                                                <TextBlock VerticalAlignment="Center" FontSize="11" Text="路由" />
+                                            </StackPanel>
+                                        </ToggleButton>
                                         <ToggleButton Grid.Column="6"
                                                       Width="54"
                                                       Height="34"
@@ -1895,6 +1991,130 @@
                                                        Text="&#xE74F;" />
                                         </ToggleButton>
                                     </Grid>
+                                    <Border Margin="44,9,0,0"
+                                            Padding="12,10"
+                                            Background="#111821"
+                                            BorderBrush="{StaticResource StrokeBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="8">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsEditorOpen}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="18" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock FontSize="11" FontWeight="SemiBold" Text="Windows 原始路由" />
+                                                <TextBlock Margin="0,6,0,0"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           FontSize="10"
+                                                           Text="{Binding WindowsOutputText}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding WindowsOutputText}" />
+                                                <TextBlock Margin="0,3,0,0"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           FontSize="10"
+                                                           Text="输入设备：由 Windows 按应用设置管理" />
+                                                <Button Margin="0,9,0,0"
+                                                        MinWidth="214"
+                                                        Height="30"
+                                                        Padding="12,0"
+                                                        HorizontalAlignment="Left"
+                                                        Click="OpenWindowsAppVolumeSettings_Click"
+                                                        AutomationProperties.Name="打开 Windows 应用输入输出设置">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Margin="0,0,6,0" Style="{StaticResource IconText}" Text="&#xE713;" />
+                                                        <TextBlock Text="更改 Windows 输入/输出" />
+                                                    </StackPanel>
+                                                </Button>
+                                            </StackPanel>
+                                            <Border Grid.Column="1" Width="1" Background="{StaticResource StrokeBrush}" />
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock FontSize="11" FontWeight="SemiBold" Text="聆界附加输出" />
+                                                <TextBlock Margin="0,4,0,5"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           FontSize="10"
+                                                           Text="{Binding AdditionalOutputSummary}" />
+                                                <Grid Margin="0,2,0,7">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="82" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <ComboBox Margin="0,0,7,0"
+                                                              Height="30"
+                                                              ItemsSource="{Binding AvailableAdditionalOutputs}"
+                                                              SelectedItem="{Binding SelectedAdditionalOutput, Mode=TwoWay}"
+                                                              DisplayMemberPath="DeviceName"
+                                                              ToolTip="选择要增加的附加输出设备" />
+                                                    <Button Grid.Column="1"
+                                                            Height="30"
+                                                            Click="AddApplicationOutput_Click"
+                                                            AutomationProperties.Name="添加附加输出设备">
+                                                        <Button.Style>
+                                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                                <Setter Property="IsEnabled" Value="True" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding SelectedAdditionalOutput}" Value="{x:Null}">
+                                                                        <Setter Property="IsEnabled" Value="False" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Button.Style>
+                                                        <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                                                            <TextBlock Margin="0,0,5,0" Style="{StaticResource IconText}" Text="&#xE710;" />
+                                                            <TextBlock Text="添加" />
+                                                        </StackPanel>
+                                                    </Button>
+                                                </Grid>
+                                                <ItemsControl ItemsSource="{Binding AdditionalOutputRoutes}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid Margin="0,2,0,0">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="30" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock VerticalAlignment="Center"
+                                                                           FontSize="10"
+                                                                           Text="{Binding DeviceName}"
+                                                                           TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock Grid.Column="1"
+                                                                           Margin="8,0"
+                                                                           VerticalAlignment="Center"
+                                                                           Foreground="{StaticResource SuccessBrush}"
+                                                                           FontSize="9"
+                                                                           Text="{Binding StatusText}" />
+                                                                <Button Grid.Column="2"
+                                                                        Width="26"
+                                                                        Height="24"
+                                                                        Command="{Binding RemoveCommand}"
+                                                                        Style="{StaticResource IconButton}"
+                                                                        ToolTip="移除此附加输出">
+                                                                    <TextBlock Style="{StaticResource IconText}" FontSize="10" Text="&#xE711;" />
+                                                                </Button>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <TextBlock Margin="0,5,0,0"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           FontSize="9"
+                                                           Text="也可以将应用卡片拖到下方输出设备。" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                    </StackPanel>
                                 </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>

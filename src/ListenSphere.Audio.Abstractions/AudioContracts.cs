@@ -85,6 +85,9 @@ public interface IAudioDeviceManager
         CancellationToken cancellationToken);
     ValueTask<IReadOnlyList<IAudioDevice>> GetRecordingDevicesAsync(
         CancellationToken cancellationToken);
+    ValueTask SetDefaultRecordingDeviceAsync(
+        string deviceId,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>Reads and controls the master volume of a platform playback endpoint.</summary>

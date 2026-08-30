@@ -24,6 +24,8 @@ namespace ListenSphere.Controller;
 public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
     public static readonly Guid LocalSoundChannelId = new("4c5f5426-fdc1-47b3-b7b4-60c31c6ea601");
+    private static readonly Guid ComputerMicrophoneChannelId =
+        new("603669e2-6a20-4d81-8bc0-24df59ed6d42");
     private static readonly string[] GroupBusNames =
         ["未分组", "游戏", "语音", "媒体", "系统", "自定义"];
     private readonly ListenSphereControlServer server;
@@ -32,6 +34,8 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
     private readonly IAudioDeviceManager audioDeviceManager;
     private readonly IAudioOutputVolumeController outputVolume;
     private readonly IWasapiCaptureSourceFactory captureSourceFactory;
+    private readonly IWasapiRecordingCaptureSourceFactory recordingCaptureSourceFactory;
+    private readonly IProcessLoopbackCaptureSourceFactory processCaptureSourceFactory;
     private readonly IWindowsDeviceNotificationSource deviceNotifications;
     private readonly DiagnosticArchiveService diagnostics;
     private readonly BluetoothRfcommProbeHost bluetoothHost;
@@ -47,10 +51,15 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
     private readonly ConcurrentDictionary<Guid, long> meterUpdatesBySession = [];
     private readonly ConcurrentDictionary<OutputRouteKey, SecondaryPlaybackRoute>
         activeOutputRoutes = [];
+    private readonly ConcurrentDictionary<Guid, WasapiProcessLoopbackCaptureSource>
+        activeLocalApplicationCaptures = [];
+    private readonly ConcurrentDictionary<Guid, LocalApplicationSource>
+        localApplicationSources = [];
     private readonly ConcurrentDictionary<Guid, SecondaryPlaybackRoute>
         activeMicrophoneRoutes = [];
     private readonly ConcurrentDictionary<Guid, SecondaryPlaybackRoute>
         activeMicrophoneMonitoringRoutes = [];
+    private readonly ConcurrentDictionary<Guid, MicrophonePeakState> microphonePeaks = [];
     private readonly ConcurrentDictionary<OutputRouteKey, ListenSphere.Configuration.AudioOutputRouteSettings>
         configuredOutputRoutes = [];
     private readonly Dictionary<string, GroupBusItemViewModel> groupBusesByName =
@@ -79,6 +88,10 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
     private IAudioDevice? selectedPlaybackDevice;
     private IAudioDevice? selectedMicrophoneOutputDevice;
     private IAudioDevice? selectedMicrophoneMonitoringDevice;
+    private IAudioDevice? selectedComputerMicrophoneDevice;
+    private WasapiLoopbackCaptureSource? computerMicrophoneCapture;
+    private readonly SemaphoreSlim computerMicrophoneGate = new(1, 1);
+    private readonly SemaphoreSlim additionalOutputsGate = new(1, 1);
     private CancellationTokenSource? volumeDebounce;
     private readonly ConcurrentDictionary<string, CancellationTokenSource>
         outputVolumeDebounces = new(StringComparer.Ordinal);
@@ -102,6 +115,10 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
     private bool isLocalSourceMuted;
     private float microphoneOutputVolumePercent = 100;
     private bool microphoneOutputMuted;
+    private bool microphoneOutputEnabled;
+    private float microphoneHubPeakPercent;
+    private float computerMicrophonePeakPercent;
+    private long lastMicrophonePeakPublishAt;
     private bool microphoneMonitoringEnabled;
     private bool followSystemDefaultPlayback = true;
     private bool initialized;
@@ -122,6 +139,8 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         IAudioDeviceManager audioDeviceManager,
         IAudioOutputVolumeController outputVolume,
         IWasapiCaptureSourceFactory captureSourceFactory,
+        IWasapiRecordingCaptureSourceFactory recordingCaptureSourceFactory,
+        IProcessLoopbackCaptureSourceFactory processCaptureSourceFactory,
         IWindowsDeviceNotificationSource deviceNotifications,
         DiagnosticArchiveService diagnostics,
         BluetoothRfcommProbeHost bluetoothHost,
@@ -134,6 +153,8 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         this.audioDeviceManager = audioDeviceManager;
         this.outputVolume = outputVolume;
         this.captureSourceFactory = captureSourceFactory;
+        this.recordingCaptureSourceFactory = recordingCaptureSourceFactory;
+        this.processCaptureSourceFactory = processCaptureSourceFactory;
         this.deviceNotifications = deviceNotifications;
         this.diagnostics = diagnostics;
         this.bluetoothHost = bluetoothHost;
@@ -423,6 +444,7 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             }
 
             OnPropertyChanged(nameof(MicrophoneOutputStatus));
+            OnPropertyChanged(nameof(MicrophoneOutputGlowLevel));
             _ = ResetMicrophoneOutputRoutesAsync();
             AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -443,6 +465,70 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         }
     }
 
+    public IAudioDevice? SelectedComputerMicrophoneDevice
+    {
+        get => selectedComputerMicrophoneDevice;
+        set
+        {
+            IAudioDevice? previous = selectedComputerMicrophoneDevice;
+            if (!SetField(ref selectedComputerMicrophoneDevice, value) || applyingSettings)
+            {
+                return;
+            }
+
+            _ = ChangeDefaultComputerMicrophoneAsync(value, previous);
+        }
+    }
+
+    public bool MicrophoneOutputEnabled
+    {
+        get => microphoneOutputEnabled;
+        set
+        {
+            if (!SetField(ref microphoneOutputEnabled, value) || applyingSettings)
+            {
+                return;
+            }
+
+            if (!value)
+            {
+                MicrophoneMonitoringEnabled = false;
+                microphonePeaks.Clear();
+                MicrophoneHubPeakPercent = 0;
+                ComputerMicrophonePeakPercent = 0;
+            }
+            _ = ApplyMicrophoneOutputEnabledAsync(value);
+            OnPropertyChanged(nameof(MicrophoneOutputStatus));
+            OnPropertyChanged(nameof(MicrophoneOutputGlowLevel));
+            AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public float MicrophoneHubPeakPercent
+    {
+        get => microphoneHubPeakPercent;
+        private set
+        {
+            if (SetField(ref microphoneHubPeakPercent, Math.Clamp(value, 0, 100)))
+            {
+                OnPropertyChanged(nameof(MicrophoneOutputGlowLevel));
+            }
+        }
+    }
+
+    public float ComputerMicrophonePeakPercent
+    {
+        get => computerMicrophonePeakPercent;
+        private set => SetField(ref computerMicrophonePeakPercent, Math.Clamp(value, 0, 100));
+    }
+
+    public float MicrophoneOutputGlowLevel =>
+        MicrophoneOutputEnabled &&
+        !MicrophoneOutputMuted &&
+        SelectedMicrophoneOutputDevice is not null
+            ? MicrophoneHubPeakPercent * MicrophoneOutputVolumePercent / 100f
+            : 0;
+
     public float MicrophoneOutputVolumePercent
     {
         get => microphoneOutputVolumePercent;
@@ -451,6 +537,7 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             if (SetField(ref microphoneOutputVolumePercent, Math.Clamp(value, 0, 100)) &&
                 !applyingSettings)
             {
+                OnPropertyChanged(nameof(MicrophoneOutputGlowLevel));
                 AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -463,6 +550,7 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         {
             if (SetField(ref microphoneOutputMuted, value) && !applyingSettings)
             {
+                OnPropertyChanged(nameof(MicrophoneOutputGlowLevel));
                 AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -488,6 +576,11 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
     {
         get
         {
+            if (!MicrophoneOutputEnabled)
+            {
+                return "麦克风中枢已关闭";
+            }
+
             if (SelectedMicrophoneOutputDevice is null)
             {
                 return "未检测到虚拟音频线；需安装 VB-CABLE、VoiceMeeter 或聆界虚拟麦克风驱动";
@@ -535,7 +628,9 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         bool microphoneMonitoringEnabled = false,
         float localSourceVolume = 1f,
         bool localSourceMuted = false,
-        string? preferredMicrophoneMonitoringDeviceId = null)
+        string? preferredMicrophoneMonitoringDeviceId = null,
+        bool microphoneOutputEnabled = false,
+        string? preferredComputerMicrophoneDeviceId = null)
     {
         if (initialized)
         {
@@ -551,7 +646,8 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         automaticRoutingEnabled = enableAutomaticRouting;
         MicrophoneOutputVolumePercent = Math.Clamp(preferredMicrophoneOutputVolume, 0f, 1f) * 100;
         MicrophoneOutputMuted = microphoneOutputMuted;
-        MicrophoneMonitoringEnabled = microphoneMonitoringEnabled;
+        MicrophoneOutputEnabled = microphoneOutputEnabled;
+        MicrophoneMonitoringEnabled = microphoneOutputEnabled && microphoneMonitoringEnabled;
         RoutingRules.Clear();
         foreach (ListenSphere.Configuration.AudioRoutingRuleSettings rule in savedRoutingRules ?? [])
         {
@@ -589,7 +685,12 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         await RefreshOutputsAsync(
             preferredPlaybackDeviceId,
             preferredMicrophoneOutputDeviceId,
-            preferredMicrophoneMonitoringDeviceId);
+            preferredMicrophoneMonitoringDeviceId,
+            preferredComputerMicrophoneDeviceId);
+        if (MicrophoneOutputEnabled)
+        {
+            await EnsureComputerMicrophoneCaptureAsync();
+        }
         audioLoop = ConsumeAudioAsync(audioLifetime.Token);
         bluetoothAudioLoop = ConsumeBluetoothAudioAsync(audioLifetime.Token);
         usbAudioLoop = ConsumeUsbAudioAsync(audioLifetime.Token);
@@ -694,6 +795,47 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
     public IReadOnlyList<ListenSphere.Configuration.AudioOutputRouteSettings>
         CaptureOutputRoutes() => configuredOutputRoutes.Values.ToArray();
 
+    public void RegisterLocalApplicationSource(
+        Guid channelId,
+        int processId,
+        string displayName,
+        string identityKey)
+    {
+        if (channelId == Guid.Empty || processId <= 0 || string.IsNullOrWhiteSpace(identityKey))
+        {
+            return;
+        }
+
+        localApplicationSources.TryGetValue(
+            channelId,
+            out LocalApplicationSource? previousSource);
+        localApplicationSources[channelId] = new LocalApplicationSource(
+            processId,
+            displayName,
+            identityKey);
+        if (previousSource is not null && previousSource.ProcessId != processId)
+        {
+            _ = RestartLocalApplicationCaptureAsync(channelId);
+            return;
+        }
+
+        if (configuredOutputRoutes.Keys.Any(key => key.ChannelId == channelId))
+        {
+            _ = EnsureLocalApplicationCaptureAsync(channelId);
+        }
+    }
+
+    public async Task UnregisterLocalApplicationSourceAsync(Guid channelId)
+    {
+        localApplicationSources.TryRemove(channelId, out _);
+        if (activeLocalApplicationCaptures.TryRemove(
+                channelId,
+                out WasapiProcessLoopbackCaptureSource? capture))
+        {
+            await capture.DisposeAsync();
+        }
+    }
+
     private async Task RefreshOutputsAsync() =>
         await RefreshOutputsAsync(SelectedPlaybackDevice?.Id);
 
@@ -792,7 +934,8 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
     private async Task RefreshOutputsAsync(
         string? preferredDeviceId,
         string? preferredMicrophoneDeviceId = null,
-        string? preferredMicrophoneMonitoringDeviceId = null)
+        string? preferredMicrophoneMonitoringDeviceId = null,
+        string? preferredComputerMicrophoneDeviceId = null)
     {
         try
         {
@@ -838,6 +981,15 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
                         preferredMicrophoneMonitoringDeviceId ?? selectedMicrophoneMonitoringDevice?.Id,
                         StringComparison.Ordinal)) ??
                 SelectedPlaybackDevice;
+            SelectedComputerMicrophoneDevice =
+                recordingDevices.FirstOrDefault(device => device.IsDefault) ??
+                recordingDevices.FirstOrDefault(device =>
+                    string.Equals(
+                        device.Id,
+                        preferredComputerMicrophoneDeviceId ??
+                            selectedComputerMicrophoneDevice?.Id,
+                        StringComparison.Ordinal)) ??
+                recordingDevices.FirstOrDefault();
             OnPropertyChanged(nameof(MicrophoneOutputStatus));
             applyingSettings = false;
             if (SelectedPlaybackDevice is null)
@@ -1468,7 +1620,10 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         IAudioDevice? device = PlaybackDevices.FirstOrDefault(
             item => string.Equals(item.Id, deviceId, StringComparison.Ordinal));
         bool isLocalSound = channelId == LocalSoundChannelId;
-        if ((!isLocalSound && channel is null) || device is null ||
+        bool isLocalApplication = localApplicationSources.TryGetValue(
+            channelId,
+            out LocalApplicationSource? localApplication);
+        if ((!isLocalSound && !isLocalApplication && channel is null) || device is null ||
             string.Equals(SelectedPlaybackDevice?.Id, deviceId, StringComparison.Ordinal))
         {
             return;
@@ -1478,15 +1633,28 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         configuredOutputRoutes[key] = new ListenSphere.Configuration.AudioOutputRouteSettings(
             channelId,
             deviceId,
-            isLocalSound ? "本地声音" : channel!.DisplayName);
+            isLocalSound
+                ? "本地声音"
+                : isLocalApplication
+                    ? localApplication!.DisplayName
+                    : channel!.DisplayName);
         await EnsureSecondaryOutputRouteAsync(key, device);
         await EnsureLocalOutputCaptureAsync();
+        if (isLocalApplication)
+        {
+            await EnsureLocalApplicationCaptureAsync(channelId);
+        }
         await RebuildAdditionalOutputsAsync();
         AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
-        AudioStatus = $"已将“{(isLocalSound ? "本地声音" : channel!.DisplayName)}”同时路由到 {device.DisplayName}。";
+        string sourceName = isLocalSound
+            ? "本地声音"
+            : isLocalApplication
+                ? localApplication!.DisplayName
+                : channel!.DisplayName;
+        AudioStatus = $"已将“{sourceName}”同时路由到 {device.DisplayName}。";
     }
 
-    private async Task RemoveSecondaryOutputRouteAsync(Guid channelId, string deviceId)
+    public async Task RemoveSecondaryOutputRouteAsync(Guid channelId, string deviceId)
     {
         var key = new OutputRouteKey(channelId, deviceId);
         configuredOutputRoutes.TryRemove(key, out _);
@@ -1495,13 +1663,40 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             await route.DisposeAsync();
         }
         await EnsureLocalOutputCaptureAsync();
+        if (!configuredOutputRoutes.Keys.Any(key => key.ChannelId == channelId) &&
+            activeLocalApplicationCaptures.TryRemove(
+                channelId,
+                out WasapiProcessLoopbackCaptureSource? capture))
+        {
+            await capture.DisposeAsync();
+        }
         await RebuildAdditionalOutputsAsync();
         AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    public IReadOnlyList<ApplicationOutputRouteInfo> GetApplicationOutputRoutes(Guid channelId)
+    {
+        return configuredOutputRoutes
+            .Where(pair => pair.Key.ChannelId == channelId)
+            .Select(pair =>
+            {
+                IAudioDevice? device = PlaybackDevices.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Id, pair.Key.DeviceId, StringComparison.Ordinal));
+                return new ApplicationOutputRouteInfo(
+                    pair.Key.DeviceId,
+                    device?.DisplayName ?? pair.Key.DeviceId,
+                    activeOutputRoutes.ContainsKey(pair.Key));
+            })
+            .OrderBy(route => route.DeviceName, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+    }
+
     private async Task RebuildAdditionalOutputsAsync()
     {
-        string? primaryDeviceId = SelectedPlaybackDevice?.Id;
+        await additionalOutputsGate.WaitAsync();
+        try
+        {
+            string? primaryDeviceId = SelectedPlaybackDevice?.Id;
         HashSet<string> availableDeviceIds = PlaybackDevices
             .Select(device => device.Id)
             .ToHashSet(StringComparer.Ordinal);
@@ -1533,10 +1728,10 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             }
         }
 
-        AdditionalOutputs.Clear();
-        foreach (IAudioDevice device in PlaybackDevices.Where(device =>
-                     !string.Equals(device.Id, primaryDeviceId, StringComparison.Ordinal)))
-        {
+            AdditionalOutputs.Clear();
+            foreach (IAudioDevice device in PlaybackDevices.Where(device =>
+                         !string.Equals(device.Id, primaryDeviceId, StringComparison.Ordinal)))
+            {
             float endpointVolume = 100;
             bool endpointMuted = false;
             try
@@ -1566,6 +1761,7 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             {
                 string sourceName = RemoteChannels.FirstOrDefault(channel =>
                     channel.ChannelId == key.ChannelId)?.DisplayName ??
+                    localApplicationSources.GetValueOrDefault(key.ChannelId)?.DisplayName ??
                     settings.ChannelName ??
                     "已保存的音源";
                 target.Routes.Add(new AdditionalOutputRouteItemViewModel(
@@ -1576,7 +1772,12 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
                     RemoveSecondaryOutputRouteAsync));
             }
             target.RefreshSummary();
-            AdditionalOutputs.Add(target);
+                AdditionalOutputs.Add(target);
+            }
+        }
+        finally
+        {
+            additionalOutputsGate.Release();
         }
     }
 
@@ -1608,6 +1809,57 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
                 device.Id,
                 key.ChannelId);
             AudioErrorText = $"附加输出“{device.DisplayName}”暂不可用：{exception.Message}";
+        }
+    }
+
+    private async Task EnsureLocalApplicationCaptureAsync(Guid channelId)
+    {
+        if (activeLocalApplicationCaptures.ContainsKey(channelId) ||
+            !localApplicationSources.TryGetValue(
+                channelId,
+                out LocalApplicationSource? source))
+        {
+            return;
+        }
+
+        WasapiProcessLoopbackCaptureSource capture =
+            processCaptureSourceFactory.Create(source.ProcessId);
+        if (!activeLocalApplicationCaptures.TryAdd(channelId, capture))
+        {
+            await capture.DisposeAsync();
+            return;
+        }
+
+        try
+        {
+            await capture.StartAsync(
+                new LocalApplicationOutputFrameSink(this, channelId),
+                audioLifetime.Token);
+        }
+        catch (Exception exception)
+        {
+            activeLocalApplicationCaptures.TryRemove(channelId, out _);
+            await capture.DisposeAsync();
+            Log.Warning(
+                exception,
+                "Failed to start process loopback for local application {ProcessId}",
+                source.ProcessId);
+            AudioErrorText = $"无法捕获本机应用“{source.DisplayName}”：{exception.Message}";
+        }
+    }
+
+    private async Task RestartLocalApplicationCaptureAsync(Guid channelId)
+    {
+        if (activeLocalApplicationCaptures.TryRemove(
+                channelId,
+                out WasapiProcessLoopbackCaptureSource? capture))
+        {
+            await capture.DisposeAsync();
+        }
+
+        if (configuredOutputRoutes.Keys.Any(key => key.ChannelId == channelId))
+        {
+            await EnsureLocalApplicationCaptureAsync(channelId);
         }
     }
 
@@ -1668,24 +1920,48 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         ulong timestamp,
         CancellationToken cancellationToken)
     {
-        IAudioDevice? device = SelectedMicrophoneOutputDevice;
-        if (channel?.IsMicrophoneSource != true || device is null)
+        if (channel?.IsMicrophoneSource != true)
         {
             return;
         }
 
-        if (!activeMicrophoneRoutes.TryGetValue(channel.ChannelId, out SecondaryPlaybackRoute? route))
+        await WriteMicrophoneOutputFrameAsync(
+            channel.ChannelId,
+            pcm,
+            timestamp,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask WriteMicrophoneOutputFrameAsync(
+        Guid sourceId,
+        byte[] pcm,
+        ulong timestamp,
+        CancellationToken cancellationToken)
+    {
+        IAudioDevice? device = SelectedMicrophoneOutputDevice;
+        if (!MicrophoneOutputEnabled)
+        {
+            return;
+        }
+
+        ObserveMicrophonePeak(sourceId, pcm);
+        if (device is null)
+        {
+            return;
+        }
+
+        if (!activeMicrophoneRoutes.TryGetValue(sourceId, out SecondaryPlaybackRoute? route))
         {
             var sink = new WasapiPlaybackSink(device.Id, GetPlaybackProfile(device));
             var candidate = new SecondaryPlaybackRoute(sink);
             try
             {
                 await sink.StartAsync(cancellationToken).ConfigureAwait(false);
-                if (!activeMicrophoneRoutes.TryAdd(channel.ChannelId, candidate))
+                if (!activeMicrophoneRoutes.TryAdd(sourceId, candidate))
                 {
                     await candidate.DisposeAsync().ConfigureAwait(false);
                 }
-                route = activeMicrophoneRoutes.GetValueOrDefault(channel.ChannelId);
+                route = activeMicrophoneRoutes.GetValueOrDefault(sourceId);
             }
             catch (Exception exception)
             {
@@ -1709,7 +1985,7 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            if (activeMicrophoneRoutes.TryRemove(channel.ChannelId, out SecondaryPlaybackRoute? failed))
+            if (activeMicrophoneRoutes.TryRemove(sourceId, out SecondaryPlaybackRoute? failed))
             {
                 await failed.DisposeAsync().ConfigureAwait(false);
             }
@@ -1717,6 +1993,38 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             _ = Application.Current.Dispatcher.BeginInvoke(() =>
                 AudioErrorText = $"麦克风输出中断，刷新设备后可恢复：{exception.Message}");
         }
+    }
+
+    private void ObserveMicrophonePeak(Guid sourceId, byte[] pcm)
+    {
+        float peak = AudioLevelCalculator.Calculate(
+            MemoryMarshal.Cast<byte, float>(pcm)).Peak * 100;
+        long now = Environment.TickCount64;
+        microphonePeaks[sourceId] = new MicrophonePeakState(peak, now);
+        long previousPublishAt = Interlocked.Read(ref lastMicrophonePeakPublishAt);
+        if (now - previousPublishAt < 33 ||
+            Interlocked.CompareExchange(ref lastMicrophonePeakPublishAt, now, previousPublishAt) !=
+            previousPublishAt)
+        {
+            return;
+        }
+
+        float aggregate = microphonePeaks
+            .Where(pair => now - pair.Value.ObservedAtMilliseconds <= 500)
+            .Select(pair => pair.Value.PeakPercent)
+            .DefaultIfEmpty(0)
+            .Max();
+        float computerPeak = microphonePeaks.TryGetValue(
+                ComputerMicrophoneChannelId,
+                out MicrophonePeakState computerState) &&
+            now - computerState.ObservedAtMilliseconds <= 500
+                ? computerState.PeakPercent
+                : 0;
+        _ = Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            MicrophoneHubPeakPercent = aggregate;
+            ComputerMicrophonePeakPercent = computerPeak;
+        });
     }
 
     private async Task ResetMicrophoneOutputRoutesAsync()
@@ -1730,20 +2038,149 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         }
     }
 
+    private async Task ApplyMicrophoneOutputEnabledAsync(bool enabled)
+    {
+        if (enabled)
+        {
+            await EnsureComputerMicrophoneCaptureAsync();
+            return;
+        }
+
+        await StopComputerMicrophoneCaptureAsync();
+        await ResetMicrophoneOutputRoutesAsync();
+        await ResetMicrophoneMonitoringRoutesAsync();
+    }
+
+    private async Task RestartComputerMicrophoneCaptureAsync()
+    {
+        await StopComputerMicrophoneCaptureAsync();
+        if (MicrophoneOutputEnabled)
+        {
+            await EnsureComputerMicrophoneCaptureAsync();
+        }
+    }
+
+    private async Task ChangeDefaultComputerMicrophoneAsync(
+        IAudioDevice? device,
+        IAudioDevice? previous)
+    {
+        if (device is null)
+        {
+            await RestartComputerMicrophoneCaptureAsync();
+            AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        try
+        {
+            await audioDeviceManager.SetDefaultRecordingDeviceAsync(
+                device.Id,
+                CancellationToken.None);
+            await RestartComputerMicrophoneCaptureAsync();
+            AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+            AudioStatus = $"Windows 默认麦克风已切换为 {device.DisplayName}。";
+        }
+        catch (Exception exception)
+        {
+            Log.Warning(
+                exception,
+                "Failed to set Windows default recording endpoint {DeviceId}",
+                device.Id);
+            applyingSettings = true;
+            SelectedComputerMicrophoneDevice = previous;
+            applyingSettings = false;
+            await RestartComputerMicrophoneCaptureAsync();
+            AudioErrorText = $"无法修改 Windows 默认麦克风：{exception.Message}";
+        }
+    }
+
+    private async Task EnsureComputerMicrophoneCaptureAsync()
+    {
+        IAudioDevice? device = SelectedComputerMicrophoneDevice;
+        if (!MicrophoneOutputEnabled || device is null)
+        {
+            return;
+        }
+
+        await computerMicrophoneGate.WaitAsync();
+        try
+        {
+            if (computerMicrophoneCapture is not null)
+            {
+                return;
+            }
+
+            WasapiLoopbackCaptureSource capture =
+                recordingCaptureSourceFactory.Create(device.Id);
+            try
+            {
+                await capture.StartAsync(
+                    new ComputerMicrophoneFrameSink(this),
+                    audioLifetime.Token);
+                computerMicrophoneCapture = capture;
+            }
+            catch (Exception exception)
+            {
+                await capture.DisposeAsync();
+                Log.Warning(exception, "Failed to capture computer microphone {DeviceId}", device.Id);
+                AudioErrorText = $"电脑麦克风“{device.DisplayName}”无法启动：{exception.Message}";
+            }
+        }
+        finally
+        {
+            computerMicrophoneGate.Release();
+        }
+    }
+
+    private async Task StopComputerMicrophoneCaptureAsync()
+    {
+        WasapiLoopbackCaptureSource? capture;
+        await computerMicrophoneGate.WaitAsync();
+        try
+        {
+            capture = computerMicrophoneCapture;
+            computerMicrophoneCapture = null;
+        }
+        finally
+        {
+            computerMicrophoneGate.Release();
+        }
+
+        if (capture is not null)
+        {
+            await capture.DisposeAsync();
+        }
+
+        RemoveMicrophonePeak(ComputerMicrophoneChannelId);
+    }
+
     private async ValueTask WriteMicrophoneMonitoringAsync(
         RemoteChannelItemViewModel channel,
         byte[] pcm,
         ulong timestamp,
         CancellationToken cancellationToken)
     {
+        await WriteMicrophoneMonitoringFrameAsync(
+            channel.ChannelId,
+            pcm,
+            timestamp,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask WriteMicrophoneMonitoringFrameAsync(
+        Guid sourceId,
+        byte[] pcm,
+        ulong timestamp,
+        CancellationToken cancellationToken)
+    {
         IAudioDevice? device = SelectedMicrophoneMonitoringDevice;
-        if (!MicrophoneMonitoringEnabled || device is null)
+        if (!MicrophoneOutputEnabled || !MicrophoneMonitoringEnabled || device is null)
         {
             return;
         }
 
         if (!activeMicrophoneMonitoringRoutes.TryGetValue(
-                channel.ChannelId,
+                sourceId,
                 out SecondaryPlaybackRoute? route))
         {
             var sink = new WasapiPlaybackSink(device.Id, GetPlaybackProfile(device));
@@ -1751,11 +2188,11 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             try
             {
                 await sink.StartAsync(cancellationToken).ConfigureAwait(false);
-                if (!activeMicrophoneMonitoringRoutes.TryAdd(channel.ChannelId, candidate))
+                if (!activeMicrophoneMonitoringRoutes.TryAdd(sourceId, candidate))
                 {
                     await candidate.DisposeAsync().ConfigureAwait(false);
                 }
-                route = activeMicrophoneMonitoringRoutes.GetValueOrDefault(channel.ChannelId);
+                route = activeMicrophoneMonitoringRoutes.GetValueOrDefault(sourceId);
             }
             catch (Exception exception)
             {
@@ -1780,7 +2217,7 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             if (activeMicrophoneMonitoringRoutes.TryRemove(
-                    channel.ChannelId,
+                    sourceId,
                     out SecondaryPlaybackRoute? failed))
             {
                 await failed.DisposeAsync().ConfigureAwait(false);
@@ -1809,6 +2246,30 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         {
             await route.DisposeAsync().ConfigureAwait(false);
         }
+
+        RemoveMicrophonePeak(channelId);
+    }
+
+    private void RemoveMicrophonePeak(Guid sourceId)
+    {
+        microphonePeaks.TryRemove(sourceId, out _);
+        long now = Environment.TickCount64;
+        float aggregate = microphonePeaks
+            .Where(pair => now - pair.Value.ObservedAtMilliseconds <= 500)
+            .Select(pair => pair.Value.PeakPercent)
+            .DefaultIfEmpty(0)
+            .Max();
+        float computerPeak = microphonePeaks.TryGetValue(
+                ComputerMicrophoneChannelId,
+                out MicrophonePeakState computerState) &&
+            now - computerState.ObservedAtMilliseconds <= 500
+                ? computerState.PeakPercent
+                : 0;
+        _ = Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            MicrophoneHubPeakPercent = aggregate;
+            ComputerMicrophonePeakPercent = computerPeak;
+        });
     }
 
     private async Task RemoveMicrophoneMonitoringRouteAsync(Guid channelId)
@@ -3110,6 +3571,15 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
                 await route.DisposeAsync();
             }
         }
+        foreach ((Guid channelId, WasapiProcessLoopbackCaptureSource capture) in
+                 activeLocalApplicationCaptures.ToArray())
+        {
+            if (activeLocalApplicationCaptures.TryRemove(channelId, out _))
+            {
+                await capture.DisposeAsync();
+            }
+        }
+        await StopComputerMicrophoneCaptureAsync();
         await ResetMicrophoneOutputRoutesAsync();
         await ResetMicrophoneMonitoringRoutesAsync();
         AdditionalOutputs.Clear();
@@ -3130,12 +3600,25 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
 
         playbackGate.Dispose();
         localCaptureGate.Dispose();
+        computerMicrophoneGate.Dispose();
+        additionalOutputsGate.Dispose();
         await bluetoothHost.DisposeAsync();
         await usbHost.DisposeAsync();
         audioLifetime.Dispose();
     }
 
     private readonly record struct OutputRouteKey(Guid ChannelId, string DeviceId);
+    private readonly record struct MicrophonePeakState(
+        float PeakPercent,
+        long ObservedAtMilliseconds);
+    public sealed record ApplicationOutputRouteInfo(
+        string DeviceId,
+        string DeviceName,
+        bool IsActive);
+    private sealed record LocalApplicationSource(
+        int ProcessId,
+        string DisplayName,
+        string IdentityKey);
 
     private sealed class SecondaryPlaybackRoute(WasapiPlaybackSink sink) : IAsyncDisposable
     {
@@ -3179,6 +3662,43 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
                 owner.IsLocalSourceMuted ? 0f : owner.LocalSourceVolumePercent / 100f);
             await owner.WriteOutputRoutesByChannelIdAsync(
                 LocalSoundChannelId,
+                pcm,
+                frame.Timestamp,
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private sealed class LocalApplicationOutputFrameSink(
+        ControllerNetworkViewModel owner,
+        Guid channelId) : IAudioFrameSink
+    {
+        public async ValueTask WriteAsync(AudioFrame frame, CancellationToken cancellationToken)
+        {
+            byte[] pcm = frame.Data.ToArray();
+            PcmGainProcessor.Apply(
+                pcm,
+                owner.IsLocalSourceMuted ? 0f : owner.LocalSourceVolumePercent / 100f);
+            await owner.WriteOutputRoutesByChannelIdAsync(
+                channelId,
+                pcm,
+                frame.Timestamp,
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private sealed class ComputerMicrophoneFrameSink(
+        ControllerNetworkViewModel owner) : IAudioFrameSink
+    {
+        public async ValueTask WriteAsync(AudioFrame frame, CancellationToken cancellationToken)
+        {
+            byte[] pcm = frame.Data.ToArray();
+            await owner.WriteMicrophoneOutputFrameAsync(
+                ComputerMicrophoneChannelId,
+                pcm,
+                frame.Timestamp,
+                cancellationToken).ConfigureAwait(false);
+            await owner.WriteMicrophoneMonitoringFrameAsync(
+                ComputerMicrophoneChannelId,
                 pcm,
                 frame.Timestamp,
                 cancellationToken).ConfigureAwait(false);
