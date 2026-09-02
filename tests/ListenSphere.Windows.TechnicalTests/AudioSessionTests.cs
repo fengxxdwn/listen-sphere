@@ -36,6 +36,56 @@ public sealed class AudioSessionTests
         Assert.Equal(80, item.VolumePercent);
     }
 
+    [Fact]
+    public void ApplicationCard_AggregatesEndpointSessionsAndControlsEverySession()
+    {
+        const string processPath = @"C:\Apps\Player\player.exe";
+        var realtek = new WindowsAudioSession(
+            "realtek\u001fsession",
+            42,
+            "播放器",
+            processPath,
+            null,
+            0.4f,
+            false,
+            false,
+            0.1f,
+            "realtek",
+            "Speaker (Realtek Audio)");
+        var headset = realtek with
+        {
+            SessionId = "headset\u001fsession",
+            Volume = 0.7f,
+            IsActive = true,
+            Peak = 0.65f,
+            OutputDeviceId = "headset",
+            OutputDeviceName = "扬声器 (Headset)"
+        };
+        var volumeRequests = new List<(string SessionId, float Volume)>();
+        var muteRequests = new List<(string SessionId, bool IsMuted)>();
+        var item = new AudioSessionItemViewModel(
+            [realtek, headset],
+            (sessionId, volume) => volumeRequests.Add((sessionId, volume)),
+            (sessionId, muted) => muteRequests.Add((sessionId, muted)));
+
+        Assert.Equal(
+            AudioSessionItemViewModel.CreateApplicationIdentityKey(realtek),
+            AudioSessionItemViewModel.CreateApplicationIdentityKey(headset));
+        Assert.Equal(2, item.SessionIds.Count);
+        Assert.Contains("2 个设备", item.WindowsOutputText, StringComparison.Ordinal);
+        Assert.True(item.IsActive);
+        Assert.Equal(65, item.PeakPercent, 3);
+        Assert.Equal(70, item.VolumePercent, 3);
+
+        item.VolumePercent = 80;
+        item.IsMuted = true;
+
+        Assert.Equal(2, volumeRequests.Count);
+        Assert.All(volumeRequests, request => Assert.Equal(0.8f, request.Volume, 3));
+        Assert.Equal(2, muteRequests.Count);
+        Assert.All(muteRequests, request => Assert.True(request.IsMuted));
+    }
+
     [Theory]
     [InlineData("Browser", false, "File", "process", 42, "Browser")]
     [InlineData("", false, "File Description", "process", 42, "File Description")]

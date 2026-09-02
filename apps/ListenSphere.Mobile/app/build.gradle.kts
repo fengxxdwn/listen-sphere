@@ -43,6 +43,10 @@ android {
         buildConfig = true
     }
 
+    sourceSets {
+        getByName("test").resources.srcDir("../../../protocol/test-vectors")
+    }
+
     packaging {
         resources.excludes += setOf("META-INF/AL2.0", "META-INF/LGPL2.1")
     }

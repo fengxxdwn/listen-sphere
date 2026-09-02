@@ -34,7 +34,9 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, bool> localSessionBaseMutes =
         new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim settingsPersistenceGate = new(1, 1);
     private CancellationTokenSource? settingsDebounce;
+    private long settingsPersistenceRequest;
     private ListenSphereSettings settings = new();
     private SceneSettings? selectedScene;
     private string newSceneName = string.Empty;
@@ -754,30 +756,47 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
 
     private async Task PersistSettingsAsync(CancellationToken cancellationToken)
     {
-        settings = settings with
+        long request = Interlocked.Increment(ref settingsPersistenceRequest);
+        await settingsPersistenceGate.WaitAsync(cancellationToken);
+        try
         {
-            Version = ListenSphereSettings.CurrentVersion,
-            PlaybackDeviceId = Network.SelectedPlaybackDevice?.Id,
-            FollowSystemDefaultPlayback = Network.FollowSystemDefaultPlayback,
-            MasterVolume = Network.MasterVolumePercent / 100,
-            FirstRunCompleted = !IsFirstRunGuideVisible,
-            Scenes = Scenes.ToArray(),
-            PairedDeviceIds = Network.TrustedDevices.Select(device => device.DeviceId).ToArray(),
-            AutomaticRoutingEnabled = Network.AutomaticRoutingEnabled,
-            AudioRoutingRules = Network.CaptureRoutingRules(),
-            ChannelLayouts = Network.CaptureChannelLayouts(),
-            AudioOutputRoutes = Network.CaptureOutputRoutes(),
-            MicrophoneOutputDeviceId = Network.SelectedMicrophoneOutputDevice?.Id,
-            MicrophoneOutputEnabled = Network.MicrophoneOutputEnabled,
-            ComputerMicrophoneDeviceId = Network.SelectedComputerMicrophoneDevice?.Id,
-            MicrophoneOutputVolume = Network.MicrophoneOutputVolumePercent / 100,
-            MicrophoneOutputMuted = Network.MicrophoneOutputMuted,
-            MicrophoneMonitoringEnabled = Network.MicrophoneMonitoringEnabled,
-            MicrophoneMonitoringDeviceId = Network.SelectedMicrophoneMonitoringDevice?.Id,
-            LocalSourceVolume = Network.LocalSourceVolumePercent / 100,
-            LocalSourceMuted = Network.IsLocalSourceMuted
-        };
-        await settingsStore.SaveAsync(settings, cancellationToken);
+            if (request != Volatile.Read(ref settingsPersistenceRequest))
+            {
+                return;
+            }
+            ListenSphereSettings next = settings with
+            {
+                Version = ListenSphereSettings.CurrentVersion,
+                PlaybackDeviceId = Network.SelectedPlaybackDevice?.Id,
+                FollowSystemDefaultPlayback = Network.FollowSystemDefaultPlayback,
+                MasterVolume = Network.MasterVolumePercent / 100,
+                FirstRunCompleted = !IsFirstRunGuideVisible,
+                Scenes = Scenes.ToArray(),
+                PairedDeviceIds = Network.TrustedDevices.Select(device => device.DeviceId).ToArray(),
+                AutomaticRoutingEnabled = Network.AutomaticRoutingEnabled,
+                AudioRoutingRules = Network.CaptureRoutingRules(),
+                ChannelLayouts = Network.CaptureChannelLayouts(),
+                AudioOutputRoutes = Network.CaptureOutputRoutes(),
+                MicrophoneOutputDeviceId = Network.SelectedMicrophoneOutputDevice?.Id,
+                MicrophoneOutputEnabled = Network.MicrophoneOutputEnabled,
+                ComputerMicrophoneDeviceId = Network.SelectedComputerMicrophoneDevice?.Id,
+                MicrophoneOutputVolume = Network.MicrophoneOutputVolumePercent / 100,
+                MicrophoneOutputMuted = Network.MicrophoneOutputMuted,
+                MicrophoneMonitoringEnabled = Network.MicrophoneMonitoringEnabled,
+                MicrophoneMonitoringDeviceId = Network.SelectedMicrophoneMonitoringDevice?.Id,
+                LocalSourceVolume = Network.LocalSourceVolumePercent / 100,
+                LocalSourceMuted = Network.IsLocalSourceMuted
+            };
+            await settingsStore.SaveAsync(next, cancellationToken);
+            if (request == Volatile.Read(ref settingsPersistenceRequest))
+            {
+                settings = next;
+            }
+        }
+        finally
+        {
+            settingsPersistenceGate.Release();
+        }
     }
 
     private async Task<bool> TryPersistSettingsAsync()
@@ -808,19 +827,36 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
             float gain = Network.LocalSourceVolumePercent / 100;
             foreach (AudioSessionItemViewModel session in Sessions)
             {
-                if (!localSessionBaseVolumes.TryGetValue(session.SessionId, out float baseVolume))
-                {
-                    baseVolume = gain > 0.001f
-                        ? Math.Clamp(session.VolumePercent / gain, 0, 100)
-                        : session.VolumePercent;
-                    localSessionBaseVolumes[session.SessionId] = baseVolume;
-                }
+                float baseVolume = session.SessionIds
+                    .Select(sessionId =>
+                    {
+                        if (localSessionBaseVolumes.TryGetValue(sessionId, out float value))
+                        {
+                            return value;
+                        }
 
-                if (!localSessionBaseMutes.TryGetValue(session.SessionId, out bool baseMuted))
-                {
-                    baseMuted = session.IsMuted && !Network.IsLocalSourceMuted;
-                    localSessionBaseMutes[session.SessionId] = baseMuted;
-                }
+                        float fallback = gain > 0.001f
+                            ? Math.Clamp(session.VolumePercent / gain, 0, 100)
+                            : session.VolumePercent;
+                        localSessionBaseVolumes[sessionId] = fallback;
+                        return fallback;
+                    })
+                    .DefaultIfEmpty(session.VolumePercent)
+                    .Average();
+                bool baseMuted = session.SessionIds
+                    .Select(sessionId =>
+                    {
+                        if (localSessionBaseMutes.TryGetValue(sessionId, out bool value))
+                        {
+                            return value;
+                        }
+
+                        bool fallback = session.IsMuted && !Network.IsLocalSourceMuted;
+                        localSessionBaseMutes[sessionId] = fallback;
+                        return fallback;
+                    })
+                    .DefaultIfEmpty(session.IsMuted)
+                    .All(value => value);
 
                 session.VolumePercent = baseVolume * gain;
                 session.IsMuted = baseMuted || Network.IsLocalSourceMuted;
@@ -853,34 +889,63 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
             : visibleSnapshots.Max(snapshot => snapshot.Peak) * 100;
         HashSet<string> liveIds = visibleSnapshots.Select(snapshot => snapshot.SessionId)
             .ToHashSet(StringComparer.Ordinal);
+        foreach (string staleId in localSessionBaseVolumes.Keys
+                     .Where(sessionId => !liveIds.Contains(sessionId))
+                     .ToArray())
+        {
+            localSessionBaseVolumes.Remove(staleId);
+            localSessionBaseMutes.Remove(staleId);
+            CancelPendingVolume(staleId);
+        }
+
+        IGrouping<string, WindowsAudioSession>[] applicationGroups = visibleSnapshots
+            .GroupBy(
+                AudioSessionItemViewModel.CreateApplicationIdentityKey,
+                StringComparer.Ordinal)
+            .ToArray();
+        HashSet<string> liveApplicationKeys = applicationGroups
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.Ordinal);
         for (var index = Sessions.Count - 1; index >= 0; index--)
         {
-            if (liveIds.Contains(Sessions[index].SessionId))
+            if (liveApplicationKeys.Contains(Sessions[index].ApplicationIdentityKey))
             {
                 continue;
             }
 
             Guid routingChannelId = Sessions[index].RoutingChannelId;
-            CancelPendingVolume(Sessions[index].SessionId);
-            localSessionBaseVolumes.Remove(Sessions[index].SessionId);
-            localSessionBaseMutes.Remove(Sessions[index].SessionId);
-            Sessions.RemoveAt(index);
-            if (!Sessions.Any(item => item.RoutingChannelId == routingChannelId))
+            foreach (string sessionId in Sessions[index].SessionIds)
             {
-                _ = Network.UnregisterLocalApplicationSourceAsync(routingChannelId);
+                CancelPendingVolume(sessionId);
+                localSessionBaseVolumes.Remove(sessionId);
+                localSessionBaseMutes.Remove(sessionId);
             }
+            Sessions.RemoveAt(index);
+            _ = Network.UnregisterLocalApplicationSourceAsync(routingChannelId);
         }
 
-        foreach (WindowsAudioSession snapshot in visibleSnapshots)
+        foreach (IGrouping<string, WindowsAudioSession> group in applicationGroups)
         {
+            WindowsAudioSession[] applicationSessions = group.ToArray();
+            WindowsAudioSession representative = applicationSessions
+                .OrderByDescending(snapshot => snapshot.IsActive)
+                .ThenByDescending(snapshot => snapshot.Peak)
+                .First();
+            foreach (WindowsAudioSession snapshot in applicationSessions)
+            {
+                localSessionBaseVolumes.TryAdd(snapshot.SessionId, snapshot.Volume * 100);
+                localSessionBaseMutes.TryAdd(snapshot.SessionId, snapshot.IsMuted);
+            }
+
             AudioSessionItemViewModel? existing = Sessions.FirstOrDefault(
-                item => string.Equals(item.SessionId, snapshot.SessionId, StringComparison.Ordinal));
+                item => string.Equals(
+                    item.ApplicationIdentityKey,
+                    group.Key,
+                    StringComparison.Ordinal));
             if (existing is null)
             {
-                localSessionBaseVolumes[snapshot.SessionId] = snapshot.Volume * 100;
-                localSessionBaseMutes[snapshot.SessionId] = snapshot.IsMuted;
                 var item = new AudioSessionItemViewModel(
-                    snapshot,
+                    applicationSessions,
                     QueueVolumeChange,
                     SetMute);
                 Sessions.Add(item);
@@ -895,8 +960,9 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
                     applyingLocalSourceControl = true;
                     try
                     {
-                        item.VolumePercent = snapshot.Volume * 100 * gain;
-                        item.IsMuted = snapshot.IsMuted || Network.IsLocalSourceMuted;
+                        item.VolumePercent = representative.Volume * 100 * gain;
+                        item.IsMuted = applicationSessions.All(snapshot => snapshot.IsMuted) ||
+                            Network.IsLocalSourceMuted;
                     }
                     finally
                     {
@@ -906,7 +972,7 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
             }
             else
             {
-                existing.Update(snapshot);
+                existing.Update(applicationSessions);
                 Network.RegisterLocalApplicationSource(
                     existing.RoutingChannelId,
                     existing.ProcessId,
@@ -918,7 +984,7 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         RefreshLocalApplicationRoutes();
 
         int activeCount = Sessions.Count(session => session.IsActive);
-        StatusText = $"本机 {Sessions.Count} 个应用声道 · {activeCount} 个正在发声";
+        StatusText = $"本机 {Sessions.Count} 个应用 · {activeCount} 个正在发声";
         if (!ErrorText.StartsWith("设置文件", StringComparison.Ordinal))
         {
             ErrorText = string.Empty;
@@ -1031,7 +1097,8 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
     private float peakPercent;
     private ImageSource? icon;
     private bool isEditorOpen;
-    private string? outputDeviceName;
+    private string windowsOutputText = "Windows 输出：未知设备";
+    private string[] sessionIds = [];
     private AvailableApplicationOutputDeviceItemViewModel? selectedAdditionalOutput;
     private float? pendingVolumePercent;
     private long volumeSnapshotGuardUntil;
@@ -1040,18 +1107,32 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
         WindowsAudioSession snapshot,
         Action<string, float> volumeChanged,
         Action<string, bool> muteChanged)
+        : this([snapshot], volumeChanged, muteChanged)
     {
-        SessionId = snapshot.SessionId;
-        ApplicationIdentityKey = ResolveApplicationIdentity(snapshot);
+    }
+
+    public AudioSessionItemViewModel(
+        IReadOnlyList<WindowsAudioSession> snapshots,
+        Action<string, float> volumeChanged,
+        Action<string, bool> muteChanged)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        if (snapshots.Count == 0)
+        {
+            throw new ArgumentException("At least one audio session is required.", nameof(snapshots));
+        }
+
+        ApplicationIdentityKey = CreateApplicationIdentityKey(snapshots[0]);
         RoutingChannelId = CreateStableRoutingChannelId(ApplicationIdentityKey);
         this.volumeChanged = volumeChanged;
         this.muteChanged = muteChanged;
-        displayName = snapshot.DisplayName;
-        Update(snapshot);
+        displayName = snapshots[0].DisplayName;
+        Update(snapshots);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    public string SessionId { get; }
+    public string SessionId => sessionIds[0];
+    public IReadOnlyList<string> SessionIds => sessionIds;
     public string ApplicationIdentityKey { get; }
     public Guid RoutingChannelId { get; }
     public bool CanRouteToListenSphere => ProcessId > 0;
@@ -1092,9 +1173,7 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
     }
 
     public string ProcessText => ProcessId > 0 ? $"PID {ProcessId}" : "Windows";
-    public string WindowsOutputText => string.IsNullOrWhiteSpace(outputDeviceName)
-        ? "Windows 输出：未知设备"
-        : $"Windows 输出：{outputDeviceName}";
+    public string WindowsOutputText => windowsOutputText;
 
     public float VolumePercent
     {
@@ -1107,7 +1186,10 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
                 pendingVolumePercent = normalized;
                 volumeSnapshotGuardUntil =
                     Environment.TickCount64 + VolumeSnapshotGuardMilliseconds;
-                volumeChanged(SessionId, normalized / 100);
+                foreach (string sessionId in sessionIds)
+                {
+                    volumeChanged(sessionId, normalized / 100);
+                }
             }
         }
     }
@@ -1122,7 +1204,10 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(MuteButtonText));
                 if (!applyingSnapshot)
                 {
-                    muteChanged(SessionId, value);
+                    foreach (string sessionId in sessionIds)
+                    {
+                        muteChanged(sessionId, value);
+                    }
                 }
             }
         }
@@ -1166,21 +1251,53 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
 
     public bool HasIcon => Icon is not null;
 
-    public void Update(WindowsAudioSession snapshot)
+    public void Update(WindowsAudioSession snapshot) => Update([snapshot]);
+
+    public void Update(IReadOnlyList<WindowsAudioSession> snapshots)
     {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        if (snapshots.Count == 0)
+        {
+            return;
+        }
+
+        WindowsAudioSession representative = snapshots
+            .OrderByDescending(snapshot => snapshot.IsActive)
+            .ThenByDescending(snapshot => snapshot.Peak)
+            .First();
         applyingSnapshot = true;
         try
         {
-            DisplayName = snapshot.DisplayName;
-            ProcessId = snapshot.ProcessId;
-            ApplySnapshotVolume(snapshot.Volume * 100);
-            IsMuted = snapshot.IsMuted;
-            IsActive = snapshot.IsActive;
-            PeakPercent = snapshot.Peak * 100;
-            Icon = ApplicationIconLoader.Load(snapshot.ProcessPath, snapshot.IconPath);
-            if (!string.Equals(outputDeviceName, snapshot.OutputDeviceName, StringComparison.Ordinal))
+            sessionIds = snapshots
+                .Select(snapshot => snapshot.SessionId)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            OnPropertyChanged(nameof(SessionId));
+            OnPropertyChanged(nameof(SessionIds));
+            DisplayName = representative.DisplayName;
+            ProcessId = representative.ProcessId;
+            ApplySnapshotVolume(representative.Volume * 100);
+            IsMuted = snapshots.All(snapshot => snapshot.IsMuted);
+            IsActive = snapshots.Any(snapshot => snapshot.IsActive);
+            PeakPercent = snapshots.Max(snapshot => snapshot.Peak) * 100;
+            Icon = ApplicationIconLoader.Load(
+                representative.ProcessPath,
+                representative.IconPath);
+            string[] outputNames = snapshots
+                .Select(snapshot => snapshot.OutputDeviceName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name!)
+                .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .ToArray();
+            string nextOutputText = outputNames.Length switch
             {
-                outputDeviceName = snapshot.OutputDeviceName;
+                0 => "Windows 输出：未知设备",
+                1 => $"Windows 输出：{outputNames[0]}",
+                _ => $"Windows 输出：{outputNames.Length} 个设备 · {string.Join(" / ", outputNames)}"
+            };
+            if (!string.Equals(windowsOutputText, nextOutputText, StringComparison.Ordinal))
+            {
+                windowsOutputText = nextOutputText;
                 OnPropertyChanged(nameof(WindowsOutputText));
             }
         }
@@ -1260,7 +1377,7 @@ public sealed class AudioSessionItemViewModel : INotifyPropertyChanged
         VolumePercent = normalized;
     }
 
-    private static string ResolveApplicationIdentity(WindowsAudioSession snapshot)
+    public static string CreateApplicationIdentityKey(WindowsAudioSession snapshot)
     {
         if (!string.IsNullOrWhiteSpace(snapshot.ProcessPath))
         {

@@ -1,0 +1,94 @@
+<UserControl x:Class="ListenSphere.Controller.Views.MicrophoneRoutingView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:ListenSphere.Controller">
+    <StackPanel Grid.Column="1"
+                Margin="12,0"
+                VerticalAlignment="Center"
+                IsEnabled="{Binding Network.MicrophoneOutputEnabled}">
+        <TextBlock Margin="2,0,0,3"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   FontSize="9"
+                   Text="Windows 默认麦克风输入" />
+        <Grid Height="32">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="38" />
+            </Grid.ColumnDefinitions>
+            <Grid Margin="0,0,6,0">
+                <ComboBox ItemsSource="{Binding Network.RecordingDevices}"
+                          SelectedValuePath="Id"
+                          SelectedValue="{Binding Network.SelectedComputerMicrophoneDeviceId, Mode=TwoWay}"
+                          Tag="{Binding Network.SelectedComputerMicrophoneDeviceDisplayName}"
+                          DisplayMemberPath="DisplayName"
+                          ToolTip="选择 Windows 默认麦克风，并将其接入聆界麦克风输出链路" />
+                <Border IsHitTestVisible="False"
+                        BorderBrush="#4C8DFF"
+                        BorderThickness="1.25"
+                        CacheMode="BitmapCache"
+                        CornerRadius="7"
+                        Opacity="0.035"
+                        local:AudioGlowBehavior.Level="{Binding Network.ComputerMicrophonePeakPercent}">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="14"
+                                          Color="#3F83FF"
+                                          Direction="0"
+                                          Opacity="0.9"
+                                          ShadowDepth="0" />
+                    </Border.Effect>
+                </Border>
+            </Grid>
+            <Button Grid.Column="1"
+                    Width="32"
+                    Height="32"
+                    Click="OpenSelectedMicrophoneSettings_Click"
+                    ToolTip="打开所选麦克风的 Windows 设置">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Network.SelectedComputerMicrophoneDevice}"
+                                         Value="{x:Null}">
+                                <Setter Property="IsEnabled" Value="False" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+                <TextBlock Style="{StaticResource IconText}"
+                           FontSize="15"
+                           Text="&#xE713;" />
+            </Button>
+        </Grid>
+        <TextBlock Margin="2,7,0,3"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   FontSize="9"
+                   Text="输出到 Windows 录音设备" />
+        <Grid Height="32">
+            <ComboBox ItemsSource="{Binding Network.MicrophoneOutputDevices}"
+                      SelectedValuePath="Id"
+                      SelectedValue="{Binding Network.SelectedMicrophoneOutputDeviceId, Mode=TwoWay}"
+                      Tag="{Binding Network.SelectedMicrophoneOutputDeviceDisplayName}"
+                      DisplayMemberPath="DisplayName" />
+            <Border IsHitTestVisible="False"
+                    BorderBrush="#4C8DFF"
+                    BorderThickness="1.25"
+                    CacheMode="BitmapCache"
+                    CornerRadius="7"
+                    Opacity="0.035"
+                    local:AudioGlowBehavior.Level="{Binding Network.MicrophoneOutputGlowLevel}">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="14"
+                                      Color="#3F83FF"
+                                      Direction="0"
+                                      Opacity="0.9"
+                                      ShadowDepth="0" />
+                </Border.Effect>
+            </Border>
+        </Grid>
+        <TextBlock Margin="2,5,0,0"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   FontSize="9"
+                   Text="{Binding Network.MicrophoneOutputStatus}"
+                   TextTrimming="CharacterEllipsis"
+                   ToolTip="{Binding Network.MicrophoneOutputStatus}" />
+    </StackPanel>
+</UserControl>

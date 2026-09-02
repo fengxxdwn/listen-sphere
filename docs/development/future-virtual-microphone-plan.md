@@ -45,3 +45,6 @@ MVP 已接入：
 虚拟麦克风驱动涉及驱动开发、代码签名和发布维护。在驱动与安装链完成前，界面不得
 宣称系统中已提供“聆界虚拟麦克风”。阶段 5 以第三方虚拟音频端点完成 MVP 验收；
 自研驱动继续作为正式版发布工作。
+
+主控电脑麦克风向远端设备回传属于相反方向的独立能力，见
+[`future-controller-proxy-microphone-plan.md`](future-controller-proxy-microphone-plan.md)。

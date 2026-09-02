@@ -1,4 +1,7 @@
-# ListenSphere Protocol v1 草案
+# ListenSphere Protocol v1 冻结基线
+
+本文记录 R1 时 Windows 与 Android 已部署实现的 wire contract。除明确标注的
+实现差异外，本文不描述未来设计；代码与固定向量共同构成兼容性基线。
 
 ## 1. 范围和版本
 
@@ -25,7 +28,7 @@ TXT：
 
 | Key | 含义 | 示例 |
 |---|---|---|
-| `pv` | 协议 Major.Minor | `1.0` |
+| `pv` | 协议 Major.Minor | `1.1` |
 | `id` | 小写 UUID | `00112233-4455-6677-8899-aabbccddeeff` |
 | `name` | UTF-8 用户可见设备名，最长 64 字节 | `游戏主机` |
 | `platform` | 平台标识 | `windows` |
@@ -36,43 +39,123 @@ TXT 不发布验证码、IP、证书私钥、会话密钥或应用列表。高�
 ## 3. 控制通道
 
 - 传输：TCP + TLS 1.3
-- TLS 身份：每个安装生成并持久保存本地身份；配对后固定 SHA-256 公钥/证书指纹
+- TLS 服务器身份：Controller 使用安装时生成并持久保存的自签名证书
+- TLS 客户端证书：不请求；Controller 设置 `ClientCertificateRequired = false`
 - 帧：4 字节大端无符号长度，随后是一个 Protobuf `Envelope`
 - 最大控制消息：1 MiB
-- 空闲连接：每 2 秒心跳；连续 3 次超时转为断开
 - `request_id`：请求方生成，用于关联响应；通知可为 0
 
 控制通道负责配对、心跳、能力协商、开始/停止流、会话密钥传递、设备状态和错误消息。不得在控制通道传送连续 PCM。
+
+无线客户端可在 TLS ClientHello 前发送 5 字节传输前缀：ASCII `LSTH` 加模式字节
+（1=Wireless、2=Bluetooth、3=Wired）。未发送前缀时 Controller 默认按 Wireless
+处理；该前缀只记录传输来源，不参与身份认证。
+
+### 3.1 三层身份模型
+
+| 层 | 证明内容 | 当前实现 |
+|---|---|---|
+| TLS 会话身份 | 当前连接中的 Controller 证书 | 首次连接临时接受并读取 SHA-256 指纹；已有本地信任时在 TLS 握手阶段固定指纹 |
+| ListenSphere 设备身份 | Sender 持有 `HelloRequest.device_certificate` 对应私钥 | TLS 通道内的 `identity_signature`；不依赖 TLS client certificate |
+| Trust Store | 用户曾确认该设备 UUID 与证书指纹绑定 | 首次验证码成功后双方保存；撤销会删除 Controller 侧记录并断开活动连接 |
+
+Controller 身份由 TLS 服务器证书提供。Sender 还必须确认 `HelloResponse.controller`
+的 UUID 与发现目标一致，并确认其中的 `certificate_fingerprint` 与本次 TLS 证书
+指纹一致。首次连接在验证码成功后保存该指纹；后续连接在 TLS 握手阶段直接固定。
+
+Sender 身份由 `DeviceProof` 证明。签名载荷严格按下列顺序拼接，不包含长度前缀：
+
+```text
+ASCII("ListenSphere-Device-Proof-v1\0")
+|| controller_certificate_sha256[32]
+|| sender_device_id_dotnet_guid_bytes[16]
+|| client_nonce[32]
+```
+
+Windows RSA 身份使用 SHA-256 + PKCS#1 v1.5；Android P-256 身份使用
+SHA256withECDSA DER 签名。UUID 使用当前 protobuf 中既有的 .NET `Guid.ToByteArray()`
+顺序，不得改成 RFC 4122/network order。
+
+Controller 的 Hello 验证顺序是：结构长度 → 解析并检查证书有效期 → 证书原始字节
+SHA-256 与 `DeviceIdentity.certificate_fingerprint` 恒定时间比较 → 使用当前 Controller
+指纹、设备 UUID 和 nonce 重建载荷 → 验签。证明通过后才检查 Hello 的协议 Major、
+查询 Trust Store 并返回 `HelloResponse`。
+
+### 3.2 无线握手状态图
+
+```mermaid
+sequenceDiagram
+    participant S as Sender / Android
+    participant C as Controller
+    participant TS as 双方 Trust Store
+    S->>C: 可选 LSTH 前缀 + TCP
+    S->>C: TLS 1.3 ClientHello（无客户端证书）
+    C-->>S: Controller 服务器证书
+    S->>S: 已信任则固定指纹；首次连接暂存本次指纹
+    S->>C: HelloRequest + DeviceProof
+    C->>C: 证书/指纹/Controller 指纹/UUID/nonce/签名验证
+    C->>TS: 查询 Sender UUID—指纹
+    C-->>S: HelloResponse(paired)
+    alt 首次或撤销后
+        S->>C: PairRequest(验证码)
+        C->>TS: 原子消费验证码并保存 Sender 信任
+        C-->>S: PairResponse + Controller identity
+        S->>TS: 保存 Controller UUID—TLS 指纹
+    else 已互信
+        Note over S,C: 不发送 PairRequest，不需要验证码
+    end
+    C-->>S: StartStream
+    loop 活动连接
+        S->>C: Heartbeat
+        C-->>S: HeartbeatAck（相同 request_id）
+    end
+```
+
+Windows Sender 当前每 2 秒发送心跳，并以 6 秒读取超时判断故障；Android 当前每
+5 秒发送心跳，套接字读取超时为 15 秒。心跳周期不是 protobuf 字段，兼容实现不得
+假设只有一个固定周期。
 
 P4 的 `StartStream` 由 Controller 在设备认证完成后发送，包含随机 SessionId、非零 StreamId、AES-256-GCM 临时密钥、4 字节 salt、UDP 端口和固定音频格式。密钥只存在于当前 TLS 连接及内存中；控制连接断开、设备撤销或流重启时立即作废。
 
 从 v1.1 起，认证后的 Sender 可通过 `OpenAudioStream` 为每个应用或系统捕获源声明独立逻辑声道。Controller 返回 `AudioStreamOpened`，其中包含稳定 `channel_id` 和该声道独享的 `StartStream` 会话；`CloseAudioStream` 只关闭指定声道，不断开设备控制连接。一个应用的多进程可以在 Sender 内部先混合，但不同应用不得在发送前混成同一流。旧版 Sender 仍可继续使用认证后自动下发的默认单流。
 
-v1 控制序列：
+### 3.3 认证后的控制序列
 
-1. Sender 完成 TLS 1.3 握手后首先发送 `HelloRequest`，身份中的证书指纹必须与 TLS 客户端证书一致。
-2. Controller 返回 `HelloResponse`，说明该 UUID/指纹是否已受信任。
-3. 未受信任设备发送 `PairRequest`；成功后 Controller 返回包含自身身份的 `PairResponse`。
-4. 已认证连接每 2 秒发送 `Heartbeat`，对端以相同 `request_id` 返回 `HeartbeatAck`。
-5. 正常退出或协议错误使用 `Disconnect`；传输中断则直接进入离线状态。
-6. 需要应用级调音时，Sender 为每个来源发送 `OpenAudioStream`；停止捕获时发送 `CloseAudioStream`。Controller 以“设备 UUID + source_id”派生稳定声道身份，并在设备级断连或撤销时关闭其全部子声道。
+1. TLS 1.3 完成后首个 protobuf 必须是 `HelloRequest`；没有 TLS client certificate。
+2. Controller 验证 DeviceProof，检查 Major，并返回该 UUID/指纹是否受信任。
+3. 未受信任设备发送 `PairRequest`；成功后 Controller 返回 `PairResponse`。
+4. Controller 下发默认 `StartStream`；Sender 可继续用 `OpenAudioStream` 声明应用声道。
+5. `HeartbeatAck` 回显 `Heartbeat` 的单调时间值并复用请求的 `request_id`。
+6. `CloseAudioStream` 只关闭指定声道；`Disconnect` 或底层断开关闭设备全部声道。
 
-`Envelope` 当前字段编号 10–21 已进入兼容性约束；删除消息字段时必须在 Protobuf 中 `reserved`，不得复用编号。
+Android 无线端当前发出版本 1.0，Windows 当前版本为 1.1；两者 Major 相同，依靠
+protobuf 未知字段保留继续兼容。`Envelope` 的字段 1、2、10–21 及所有嵌套消息字段
+均已冻结在 `protocol/test-vectors/control-schema-v1.txt`。当前 schema 尚无 reserved
+范围或名称；未来删除任何字段时必须同时 reserved 原编号和名称，绝不复用。
+
+### 3.4 蓝牙与原生 USB
+
+RFCOMM 和 Android Open Accessory 不运行 TLS。它们先从 Controller 的传输握手读取
+X.509 证书，计算 SHA-256 指纹，再发送与无线模式相同的 `HelloRequest` DeviceProof。
+后续 Hello、首次验证码、Trust Store 固定和格式协商语义相同，但音频帧封装及可用
+codec 属于各自传输，不使用无线 UDP 包头。
 
 ## 4. 配对
 
 1. 主控端首次运行生成 TLS 身份和稳定设备 UUID。
-2. 发送端通过 mDNS 找到主控端并建立临时 TLS 连接；此时只允许配对消息。
+2. 发送端通过 mDNS 或手动地址找到主控端并建立 TLS 连接；首个 protobuf 必须是 Hello。
 3. 主控端生成六位十进制验证码，显示 5 分钟；同一来源最多连续失败 5 次，随后冷却 10 分钟。
 4. 用户在发送端输入验证码。
-5. `PairRequest` 携带发送端身份、公钥指纹、32 字节随机数和验证码。
-6. 主控端原子地消费验证码，记录设备 UUID 与指纹，返回控制端随机数。
+5. `PairRequest` 携带发送端身份、32 字节 `sender_nonce` 和验证码。当前 Controller
+   以已验证 Hello 的 UUID/指纹作为信任依据；PairRequest 的身份和 nonce 不构成第二次证明。
+6. 主控端原子地消费验证码，记录 Hello 中的设备 UUID 与证书指纹，返回 32 字节
+   `controller_nonce`。当前 nonce 为保留的握手材料，尚未参与密钥派生。
 7. 发送端保存主控端指纹；双方后续连接都必须校验固定身份。
 8. 撤销后删除信任记录和现有会话密钥，强制断开活动连接。
 
 验证码不是长期密钥。首次配对模型以可信局域网和用户观察主控端屏幕为前提；主动转发攻击是 MVP 的剩余风险，后续可增加双端短认证字符串确认。
 
-## 5. 音频格式
+## 5. 无线 UDP 音频格式
 
 默认协商值：
 
@@ -146,3 +229,11 @@ Opus 的编号已保留，但 MVP 不发送 Opus。时间戳表示从流起点�
 ## 10. 测试向量
 
 `protocol/test-vectors/audio-header-v1.hex` 是固定 v1 包头的跨语言十六进制测试向量。UUID 使用 RFC 4122 字节顺序，其余多字节字段使用小端。未来客户端必须能解析该向量并重新生成完全相同的 60 字节结果。
+
+- `control-schema-v1.txt`：protobuf message、field number、类型、oneof、reserved 与枚举快照。
+- `hello-envelope-v1.hex`：包含 Android 风格 Hello 字段的确定性 protobuf wire 向量。
+- `device-proof-payload-v1.txt`：Controller 指纹、.NET UUID 字节序、nonce、完整
+  签名载荷、SHA-256、测试证书、公钥指纹和固定 RSA 签名；不包含私钥。
+
+.NET 和 Android 单元测试必须共同读取后两项向量。任何有意变更都必须先提升协议
+版本、给出迁移策略并通过跨平台评审；不得通过自动更新快照掩盖 wire 差异。

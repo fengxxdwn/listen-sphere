@@ -12,8 +12,8 @@
     <ProjectReference Include="../../src/ListenSphere.Protocol/ListenSphere.Protocol.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="../../protocol/test-vectors/audio-header-v1.hex"
-          Link="vectors/audio-header-v1.hex"
+    <None Include="../../protocol/test-vectors/*"
+          Link="vectors/%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

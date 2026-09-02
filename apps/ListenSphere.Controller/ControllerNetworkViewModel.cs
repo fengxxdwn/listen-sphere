@@ -1,11 +1,7 @@
-using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Diagnostics;
-using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Windows;
 using ListenSphere.Audio.Abstractions;
 using ListenSphere.Audio.Engine;
@@ -17,11 +13,16 @@ using ListenSphere.Windows.Audio;
 using ListenSphere.Windows.Bluetooth;
 using ListenSphere.Windows.Devices;
 using ListenSphere.Windows.Usb;
+using ListenSphere.Controller.Coordinators;
 using Serilog;
 
 namespace ListenSphere.Controller;
 
-public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncDisposable
+public sealed class ControllerNetworkViewModel :
+    INotifyPropertyChanged,
+    IAsyncDisposable,
+    IRemoteAudioFrameProcessor,
+    IGroupMixerSettingsProvider
 {
     public static readonly Guid LocalSoundChannelId = new("4c5f5426-fdc1-47b3-b7b4-60c31c6ea601");
     private static readonly Guid ComputerMicrophoneChannelId =
@@ -29,107 +30,44 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
     private static readonly string[] GroupBusNames =
         ["未分组", "游戏", "语音", "媒体", "系统", "自定义"];
     private readonly ListenSphereControlServer server;
-    private readonly PairingCodeService pairingCodes;
-    private readonly ITrustedDeviceStore trustStore;
-    private readonly IAudioDeviceManager audioDeviceManager;
-    private readonly IAudioOutputVolumeController outputVolume;
-    private readonly IWasapiCaptureSourceFactory captureSourceFactory;
-    private readonly IWasapiRecordingCaptureSourceFactory recordingCaptureSourceFactory;
-    private readonly IProcessLoopbackCaptureSourceFactory processCaptureSourceFactory;
-    private readonly IWindowsDeviceNotificationSource deviceNotifications;
     private readonly DiagnosticArchiveService diagnostics;
     private readonly BluetoothRfcommProbeHost bluetoothHost;
     private readonly UsbAccessoryHost usbHost;
-    private readonly CancellationTokenSource audioLifetime = new();
-    private readonly SemaphoreSlim playbackGate = new(1, 1);
+    private readonly TransportCoordinator transportCoordinator;
+    private readonly RemoteDeviceCoordinator remoteDeviceCoordinator;
+    private readonly AudioOutputCoordinator audioOutputCoordinator;
+    private readonly LocalAudioRoutingCoordinator localAudioRoutingCoordinator;
+    private readonly MicrophoneHubCoordinator microphoneHubCoordinator;
+    private readonly RemoteAudioCoordinator remoteAudioCoordinator;
+    private readonly GroupMixerCoordinator groupMixerCoordinator;
     private readonly ConcurrentDictionary<Guid, RemoteChannelItemViewModel> channelsBySession = [];
-    private readonly ConcurrentDictionary<Guid, GraphicEqualizer> equalizersBySession = [];
-    private readonly ConcurrentDictionary<Guid, GraphicEqualizer> groupEqualizersBySession = [];
-    private readonly ConcurrentDictionary<Guid, ChannelDynamicsProcessor> dynamicsBySession = [];
-    private readonly ConcurrentDictionary<Guid, ChannelDynamicsResult> dynamicsResultsBySession = [];
-    private readonly VoiceDuckingController voiceDucking = new();
-    private readonly ConcurrentDictionary<Guid, long> meterUpdatesBySession = [];
-    private readonly ConcurrentDictionary<OutputRouteKey, SecondaryPlaybackRoute>
-        activeOutputRoutes = [];
-    private readonly ConcurrentDictionary<Guid, WasapiProcessLoopbackCaptureSource>
-        activeLocalApplicationCaptures = [];
-    private readonly ConcurrentDictionary<Guid, LocalApplicationSource>
-        localApplicationSources = [];
-    private readonly ConcurrentDictionary<Guid, SecondaryPlaybackRoute>
-        activeMicrophoneRoutes = [];
-    private readonly ConcurrentDictionary<Guid, SecondaryPlaybackRoute>
-        activeMicrophoneMonitoringRoutes = [];
-    private readonly ConcurrentDictionary<Guid, MicrophonePeakState> microphonePeaks = [];
-    private readonly ConcurrentDictionary<OutputRouteKey, ListenSphere.Configuration.AudioOutputRouteSettings>
-        configuredOutputRoutes = [];
     private readonly Dictionary<string, GroupBusItemViewModel> groupBusesByName =
         new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, ListenSphere.Configuration.ChannelSettings>
         rememberedChannelSettings = [];
     private readonly Dictionary<Guid, ListenSphere.Configuration.ChannelLayoutSettings>
         rememberedChannelLayouts = [];
-    private readonly RemotePcmMixer remoteMixer = new(
-        3_840,
-        startupFrames: 6,
-        maximumFrames: 30,
-        hardClipOutput: false);
-    private readonly MasterSoftLimiter masterLimiter = new();
-    private MdnsControllerPublisher? publisher;
-    private IAudioPlaybackSink? playback;
-    private WasapiLoopbackCaptureSource? localCaptureSource;
-    private string? localCaptureDeviceId;
-    private readonly SemaphoreSlim localCaptureGate = new(1, 1);
-    private Task? audioLoop;
-    private Task? bluetoothAudioLoop;
-    private Task? usbAudioLoop;
-    private Task? bluetoothRecoveryLoop;
-    private Task? mixerLoop;
-    private Task? pairingCodeCountdownLoop;
-    private IAudioDevice? selectedPlaybackDevice;
-    private IAudioDevice? selectedMicrophoneOutputDevice;
-    private IAudioDevice? selectedMicrophoneMonitoringDevice;
-    private IAudioDevice? selectedComputerMicrophoneDevice;
-    private WasapiLoopbackCaptureSource? computerMicrophoneCapture;
-    private readonly SemaphoreSlim computerMicrophoneGate = new(1, 1);
-    private readonly SemaphoreSlim additionalOutputsGate = new(1, 1);
-    private CancellationTokenSource? volumeDebounce;
-    private readonly ConcurrentDictionary<string, CancellationTokenSource>
-        outputVolumeDebounces = new(StringComparer.Ordinal);
-    private CancellationTokenSource? deviceChangeDebounce;
-    private CancellationTokenSource? networkChangeDebounce;
-    private TaskCompletionSource<bool>? deleteConfirmation;
-    private string pairingCode = "------";
-    private string pairingHint = "点击“生成验证码”以允许新设备配对。";
-    private string pairingCodeActionText = "生成配对码";
-    private DateTimeOffset? pairingCodeExpiresAt;
-    private string networkStatus = "控制服务尚未启动";
-    private string wirelessIpAddressText = "IP 地址：正在检测…";
-    private string wirelessPortText = "端口：--";
     private string audioStatus = "远程音频接收尚未启动";
     private string audioErrorText = string.Empty;
-    private string bluetoothStatus = "正在初始化";
-    private string usbStatus = "正在初始化";
-    private string deleteConfirmationDeviceName = string.Empty;
-    private float masterVolumePercent = 100;
     private float localSourceVolumePercent = 100;
     private bool isLocalSourceMuted;
-    private float microphoneOutputVolumePercent = 100;
-    private bool microphoneOutputMuted;
-    private bool microphoneOutputEnabled;
-    private float microphoneHubPeakPercent;
-    private float computerMicrophonePeakPercent;
-    private long lastMicrophonePeakPublishAt;
-    private bool microphoneMonitoringEnabled;
-    private bool followSystemDefaultPlayback = true;
     private bool initialized;
+    private bool initializingAudioOutput;
     private bool applyingSettings;
-    private bool isDeleteConfirmationVisible;
     private bool isAudioDetailsOpen;
     private bool isGroupMixerOpen;
-    private bool isSystemMuted;
-    private bool applyingSystemMute;
     private bool automaticRoutingEnabled = true;
-    private RemoteTransportMode selectedTransport = RemoteTransportMode.Wireless;
+    private RemoteTransportMode projectedTransport = RemoteTransportMode.Wireless;
+    private IReadOnlyList<TrustedDevice>? projectedTrustedDevices;
+    private IReadOnlyList<IAudioDevice>? projectedPlaybackDevices;
+    private string? projectedPlaybackDeviceId;
+    private string projectedAudioOutputStatus = string.Empty;
+    private string projectedAudioOutputError = string.Empty;
+    private long projectedLocalAudioRoutingRevision;
+    private MicrophoneHubSnapshot projectedMicrophoneHubSnapshot =
+        MicrophoneHubSnapshot.Empty;
+    private string projectedMicrophoneActivityStatus = string.Empty;
+    private string projectedMicrophoneError = string.Empty;
     private bool disposed;
 
     public ControllerNetworkViewModel(
@@ -148,25 +86,62 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         LocalDeviceIdentity identity)
     {
         this.server = server;
-        this.pairingCodes = pairingCodes;
-        this.trustStore = trustStore;
-        this.audioDeviceManager = audioDeviceManager;
-        this.outputVolume = outputVolume;
-        this.captureSourceFactory = captureSourceFactory;
-        this.recordingCaptureSourceFactory = recordingCaptureSourceFactory;
-        this.processCaptureSourceFactory = processCaptureSourceFactory;
-        this.deviceNotifications = deviceNotifications;
         this.diagnostics = diagnostics;
         this.bluetoothHost = bluetoothHost;
         this.usbHost = usbHost;
         Identity = identity;
+        transportCoordinator = new TransportCoordinator(
+            server,
+            bluetoothHost,
+            usbHost,
+            identity);
+        remoteDeviceCoordinator = new RemoteDeviceCoordinator(
+            pairingCodes,
+            new RemoteDeviceRuntime(trustStore, bluetoothHost, usbHost, server));
+        audioOutputCoordinator = new AudioOutputCoordinator(
+            audioDeviceManager,
+            outputVolume,
+            deviceNotifications,
+            () => server.AudioReceiver.Port);
+        localAudioRoutingCoordinator = new LocalAudioRoutingCoordinator(
+            captureSourceFactory,
+            processCaptureSourceFactory,
+            LocalSoundChannelId);
+        microphoneHubCoordinator = new MicrophoneHubCoordinator(
+            audioDeviceManager,
+            recordingCaptureSourceFactory,
+            ComputerMicrophoneChannelId);
+        groupMixerCoordinator = new GroupMixerCoordinator(this);
+        remoteAudioCoordinator = new RemoteAudioCoordinator(
+            new ControllerRemoteAudioRuntime(
+                server,
+                bluetoothHost,
+                usbHost,
+                audioOutputCoordinator,
+                diagnostics),
+            this);
+        transportCoordinator.SnapshotChanged += OnTransportSnapshotChanged;
+        remoteDeviceCoordinator.SnapshotChanged += OnRemoteDeviceSnapshotChanged;
+        audioOutputCoordinator.SnapshotChanged += OnAudioOutputSnapshotChanged;
+        audioOutputCoordinator.OutputEvent += OnAudioOutputEvent;
+        localAudioRoutingCoordinator.SnapshotChanged += OnLocalAudioRoutingSnapshotChanged;
+        localAudioRoutingCoordinator.RoutesChanged += OnLocalAudioRoutesChanged;
+        microphoneHubCoordinator.SnapshotChanged += OnMicrophoneHubSnapshotChanged;
+        microphoneHubCoordinator.SettingsChanged += OnMicrophoneHubSettingsChanged;
+        remoteAudioCoordinator.SnapshotChanged += OnRemoteAudioSnapshotChanged;
+        remoteAudioCoordinator.MeterChanged += OnRemoteAudioMeterChanged;
+        groupMixerCoordinator.SnapshotChanged += OnGroupMixerSnapshotChanged;
         foreach (string groupName in GroupBusNames)
         {
-            var group = new GroupBusItemViewModel(groupName, OnGroupBusSettingsChanged);
+            GroupBusItemViewModel group = null!;
+            group = new GroupBusItemViewModel(
+                groupName,
+                () => OnGroupBusSettingsChanged(group));
             groupBusesByName.Add(groupName, group);
             GroupBuses.Add(group);
+            UpdateGroupMixerBus(group);
         }
-        GenerateCodeCommand = new AsyncRelayCommand(GenerateCodeAsync);
+        GenerateCodeCommand = new AsyncRelayCommand(remoteDeviceCoordinator.GenerateCodeAsync);
         RefreshOutputsCommand = new AsyncRelayCommand(RefreshOutputsAsync);
         SelectWirelessCommand = new AsyncRelayCommand(
             () => SelectTransportAsync(RemoteTransportMode.Wireless));
@@ -175,10 +150,10 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         SelectWiredCommand = new AsyncRelayCommand(
             () => SelectTransportAsync(RemoteTransportMode.Wired));
         ConfirmDeleteCommand = new AsyncRelayCommand(
-            () => CompleteDeleteConfirmationAsync(true),
+            () => remoteDeviceCoordinator.CompleteDeleteConfirmationAsync(true),
             () => IsDeleteConfirmationVisible);
         CancelDeleteCommand = new AsyncRelayCommand(
-            () => CompleteDeleteConfirmationAsync(false),
+            () => remoteDeviceCoordinator.CompleteDeleteConfirmationAsync(false),
             () => IsDeleteConfirmationVisible);
     }
 
@@ -223,17 +198,10 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         ? $"已启用 · {RoutingRules.Count} 条已学习规则"
         : "已关闭 · 新声道不会自动套用规则";
 
-    public string PairingCode
-    {
-        get => pairingCode;
-        private set => SetField(ref pairingCode, value);
-    }
+    public string PairingCode => remoteDeviceCoordinator.Snapshot.PairingCode;
 
-    public string PairingCodeActionText
-    {
-        get => pairingCodeActionText;
-        private set => SetField(ref pairingCodeActionText, value);
-    }
+    public string PairingCodeActionText =>
+        remoteDeviceCoordinator.Snapshot.PairingCodeActionText;
 
     public bool IsAudioDetailsOpen
     {
@@ -249,13 +217,8 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
 
     public bool IsSystemMuted
     {
-        get => isSystemMuted;
-        set
-        {
-            if (!SetField(ref isSystemMuted, value)) return;
-            OnPropertyChanged(nameof(SystemMuteButtonText));
-            if (!applyingSystemMute) _ = SetSystemMuteAsync(value);
-        }
+        get => audioOutputCoordinator.Snapshot.IsSystemMuted;
+        set => _ = audioOutputCoordinator.SetSystemMuteAsync(value);
     }
 
     public string SystemMuteButtonText => IsSystemMuted ? "取消系统静音" : "系统静音";
@@ -271,6 +234,9 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
                 return;
             }
 
+            localAudioRoutingCoordinator.SetLocalSourceGain(
+                LocalSourceVolumePercent / 100f,
+                IsLocalSourceMuted);
             LocalSourceControlChanged?.Invoke(this, EventArgs.Empty);
             AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -284,6 +250,9 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             if (!SetField(ref isLocalSourceMuted, value)) return;
             OnPropertyChanged(nameof(LocalSourceMuteButtonText));
             if (applyingSettings) return;
+            localAudioRoutingCoordinator.SetLocalSourceGain(
+                LocalSourceVolumePercent / 100f,
+                IsLocalSourceMuted);
             LocalSourceControlChanged?.Invoke(this, EventArgs.Empty);
             AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -292,21 +261,8 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
     public string LocalSourceMuteButtonText =>
         IsLocalSourceMuted ? "取消本机音源静音" : "静音本机音源";
 
-    public RemoteTransportMode SelectedTransport
-    {
-        get => selectedTransport;
-        private set
-        {
-            if (SetField(ref selectedTransport, value))
-            {
-                OnPropertyChanged(nameof(IsWirelessSelected));
-                OnPropertyChanged(nameof(IsBluetoothSelected));
-                OnPropertyChanged(nameof(IsWiredSelected));
-                OnPropertyChanged(nameof(EmptyTransportText));
-                RebuildVisibleChannels();
-            }
-        }
-    }
+    public RemoteTransportMode SelectedTransport =>
+        transportCoordinator.Snapshot.SelectedTransport;
 
     public bool IsWirelessSelected => SelectedTransport == RemoteTransportMode.Wireless;
     public bool IsBluetoothSelected => SelectedTransport == RemoteTransportMode.Bluetooth;
@@ -320,36 +276,21 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
 
     private async Task SelectTransportAsync(RemoteTransportMode transport)
     {
-        SelectedTransport = transport;
-        if (transport == RemoteTransportMode.Bluetooth)
-        {
-            await EnsureBluetoothListeningAsync(CancellationToken.None);
-        }
+        await transportCoordinator.SelectTransportAsync(transport);
     }
 
-    public string PairingHint
-    {
-        get => pairingHint;
-        private set => SetField(ref pairingHint, value);
-    }
+    public string PairingHint => remoteDeviceCoordinator.Snapshot.PairingHint;
 
     public string NetworkStatus
     {
-        get => networkStatus;
-        private set => SetField(ref networkStatus, value);
+        get => transportCoordinator.Snapshot.NetworkStatus;
+        private set => transportCoordinator.ReportNetworkStatus(value);
     }
 
-    public string WirelessIpAddressText
-    {
-        get => wirelessIpAddressText;
-        private set => SetField(ref wirelessIpAddressText, value);
-    }
+    public string WirelessIpAddressText =>
+        transportCoordinator.Snapshot.WirelessIpAddressText;
 
-    public string WirelessPortText
-    {
-        get => wirelessPortText;
-        private set => SetField(ref wirelessPortText, value);
-    }
+    public string WirelessPortText => transportCoordinator.Snapshot.WirelessPortText;
 
     public string AudioStatus
     {
@@ -365,161 +306,251 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
 
     public string BluetoothStatus
     {
-        get => bluetoothStatus;
-        private set => SetField(ref bluetoothStatus, value);
+        get => transportCoordinator.Snapshot.BluetoothStatus;
+        private set => transportCoordinator.ReportBluetoothStatus(value);
     }
 
     public string UsbStatus
     {
-        get => usbStatus;
-        private set => SetField(ref usbStatus, value);
+        get => transportCoordinator.Snapshot.UsbStatus;
+        private set => transportCoordinator.ReportUsbStatus(value);
     }
 
-    public string DeleteConfirmationDeviceName
-    {
-        get => deleteConfirmationDeviceName;
-        private set => SetField(ref deleteConfirmationDeviceName, value);
-    }
+    public string DeleteConfirmationDeviceName =>
+        remoteDeviceCoordinator.Snapshot.DeleteConfirmationDeviceName;
 
-    public bool IsDeleteConfirmationVisible
-    {
-        get => isDeleteConfirmationVisible;
-        private set
-        {
-            if (SetField(ref isDeleteConfirmationVisible, value))
-            {
-                ConfirmDeleteCommand.RaiseCanExecuteChanged();
-                CancelDeleteCommand.RaiseCanExecuteChanged();
-            }
-        }
-    }
+    public bool IsDeleteConfirmationVisible =>
+        remoteDeviceCoordinator.Snapshot.IsDeleteConfirmationVisible;
 
     public float MasterVolumePercent
     {
-        get => masterVolumePercent;
+        get => audioOutputCoordinator.Snapshot.MasterVolumePercent;
         set
         {
-            float normalized = Math.Clamp(value, 0, 100);
-            if (!SetField(ref masterVolumePercent, normalized) || applyingSettings)
+            if (Math.Abs(MasterVolumePercent - Math.Clamp(value, 0, 100)) < 0.01f)
             {
                 return;
             }
-
-            QueueMasterVolumeChange();
+            audioOutputCoordinator.SetMasterVolume(value);
             AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
     public IAudioDevice? SelectedPlaybackDevice
     {
-        get => selectedPlaybackDevice;
+        get
+        {
+            IAudioDevice? selected = audioOutputCoordinator.Snapshot.SelectedDevice;
+            return PlaybackDevices.FirstOrDefault(device => string.Equals(
+                    device.Id,
+                    selected?.Id,
+                    StringComparison.Ordinal)) ?? selected;
+        }
         set
         {
-            if (!SetField(ref selectedPlaybackDevice, value) || applyingSettings || value is null)
+            if (value is not null && !applyingSettings && !string.Equals(
+                    value.Id,
+                    SelectedPlaybackDevice?.Id,
+                    StringComparison.Ordinal))
+            {
+                _ = audioOutputCoordinator.SelectDeviceAsync(value);
+                AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    public string? SelectedPlaybackDeviceId
+    {
+        get => audioOutputCoordinator.Snapshot.SelectedDevice?.Id;
+        set
+        {
+            if (value is null)
             {
                 return;
             }
-
-            if (followSystemDefaultPlayback)
+            IAudioDevice? device = PlaybackDevices.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, value, StringComparison.Ordinal));
+            if (device is not null)
             {
-                followSystemDefaultPlayback = false;
-                PropertyChanged?.Invoke(
-                    this,
-                    new PropertyChangedEventArgs(nameof(FollowSystemDefaultPlayback)));
+                SelectedPlaybackDevice = device;
             }
-
-            _ = SwitchPlaybackAsync(value);
-            AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
         }
     }
+
+    public int SelectedPlaybackDeviceIndex
+    {
+        get
+        {
+            string? selectedId = audioOutputCoordinator.Snapshot.SelectedDevice?.Id;
+            if (selectedId is null)
+            {
+                return -1;
+            }
+            for (int index = 0; index < PlaybackDevices.Count; index++)
+            {
+                if (string.Equals(
+                        PlaybackDevices[index].Id,
+                        selectedId,
+                        StringComparison.Ordinal))
+                {
+                    return index;
+                }
+            }
+            return -1;
+        }
+        set
+        {
+            if (value >= 0 && value < PlaybackDevices.Count)
+            {
+                SelectedPlaybackDevice = PlaybackDevices[value];
+            }
+        }
+    }
+
+    public string SelectedPlaybackDeviceDisplayName =>
+        audioOutputCoordinator.Snapshot.SelectedDevice?.DisplayName ?? string.Empty;
 
     public IAudioDevice? SelectedMicrophoneOutputDevice
     {
-        get => selectedMicrophoneOutputDevice;
+        get
+        {
+            IAudioDevice? selected = microphoneHubCoordinator.Snapshot.SelectedVirtualOutput;
+            return MicrophoneOutputDevices.FirstOrDefault(device => string.Equals(
+                    device.Id,
+                    selected?.Id,
+                    StringComparison.Ordinal)) ?? selected;
+        }
         set
         {
-            if (!SetField(ref selectedMicrophoneOutputDevice, value) || applyingSettings)
+            if (value is null || applyingSettings || string.Equals(
+                    value?.Id,
+                    SelectedMicrophoneOutputDevice?.Id,
+                    StringComparison.Ordinal))
             {
                 return;
             }
-
-            OnPropertyChanged(nameof(MicrophoneOutputStatus));
-            OnPropertyChanged(nameof(MicrophoneOutputGlowLevel));
-            _ = ResetMicrophoneOutputRoutesAsync();
-            AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+            _ = microphoneHubCoordinator.SelectVirtualOutputAsync(value);
         }
     }
+
+    public string? SelectedMicrophoneOutputDeviceId
+    {
+        get => microphoneHubCoordinator.Snapshot.SelectedVirtualOutput?.Id;
+        set
+        {
+            IAudioDevice? device = MicrophoneOutputDevices.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, value, StringComparison.Ordinal));
+            if (device is not null)
+            {
+                SelectedMicrophoneOutputDevice = device;
+            }
+        }
+    }
+
+    public string SelectedMicrophoneOutputDeviceDisplayName =>
+        microphoneHubCoordinator.Snapshot.SelectedVirtualOutput?.DisplayName ?? string.Empty;
 
     public IAudioDevice? SelectedMicrophoneMonitoringDevice
     {
-        get => selectedMicrophoneMonitoringDevice;
+        get
+        {
+            IAudioDevice? selected = microphoneHubCoordinator.Snapshot.SelectedMonitoringDevice;
+            return PlaybackDevices.FirstOrDefault(device => string.Equals(
+                    device.Id,
+                    selected?.Id,
+                    StringComparison.Ordinal)) ?? selected;
+        }
         set
         {
-            if (!SetField(ref selectedMicrophoneMonitoringDevice, value) || applyingSettings)
+            if (value is null || applyingSettings || string.Equals(
+                    value?.Id,
+                    SelectedMicrophoneMonitoringDevice?.Id,
+                    StringComparison.Ordinal))
             {
                 return;
             }
-
-            _ = ResetMicrophoneMonitoringRoutesAsync();
-            AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+            _ = microphoneHubCoordinator.SelectMonitoringDeviceAsync(value);
         }
     }
+
+    public string? SelectedMicrophoneMonitoringDeviceId
+    {
+        get => microphoneHubCoordinator.Snapshot.SelectedMonitoringDevice?.Id;
+        set
+        {
+            IAudioDevice? device = PlaybackDevices.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, value, StringComparison.Ordinal));
+            if (device is not null)
+            {
+                SelectedMicrophoneMonitoringDevice = device;
+            }
+        }
+    }
+
+    public string SelectedMicrophoneMonitoringDeviceDisplayName =>
+        microphoneHubCoordinator.Snapshot.SelectedMonitoringDevice?.DisplayName ?? string.Empty;
 
     public IAudioDevice? SelectedComputerMicrophoneDevice
     {
-        get => selectedComputerMicrophoneDevice;
+        get
+        {
+            IAudioDevice? selected = microphoneHubCoordinator.Snapshot.SelectedComputerMicrophone;
+            return RecordingDevices.FirstOrDefault(device => string.Equals(
+                    device.Id,
+                    selected?.Id,
+                    StringComparison.Ordinal)) ?? selected;
+        }
         set
         {
-            IAudioDevice? previous = selectedComputerMicrophoneDevice;
-            if (!SetField(ref selectedComputerMicrophoneDevice, value) || applyingSettings)
+            if (value is null || applyingSettings || string.Equals(
+                    value?.Id,
+                    SelectedComputerMicrophoneDevice?.Id,
+                    StringComparison.Ordinal))
             {
                 return;
             }
-
-            _ = ChangeDefaultComputerMicrophoneAsync(value, previous);
+            _ = microphoneHubCoordinator.SelectComputerMicrophoneAsync(value);
         }
     }
 
-    public bool MicrophoneOutputEnabled
+    public string? SelectedComputerMicrophoneDeviceId
     {
-        get => microphoneOutputEnabled;
+        get => microphoneHubCoordinator.Snapshot.SelectedComputerMicrophone?.Id;
         set
         {
-            if (!SetField(ref microphoneOutputEnabled, value) || applyingSettings)
+            IAudioDevice? device = RecordingDevices.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, value, StringComparison.Ordinal));
+            if (device is not null)
+            {
+                SelectedComputerMicrophoneDevice = device;
+            }
+        }
+    }
+
+    public string SelectedComputerMicrophoneDeviceDisplayName =>
+        microphoneHubCoordinator.Snapshot.SelectedComputerMicrophone?.DisplayName ?? string.Empty;
+
+    public bool MicrophoneOutputEnabled
+    {
+        get => microphoneHubCoordinator.Snapshot.IsEnabled;
+        set
+        {
+            if (applyingSettings || value == MicrophoneOutputEnabled)
             {
                 return;
             }
-
-            if (!value)
-            {
-                MicrophoneMonitoringEnabled = false;
-                microphonePeaks.Clear();
-                MicrophoneHubPeakPercent = 0;
-                ComputerMicrophonePeakPercent = 0;
-            }
-            _ = ApplyMicrophoneOutputEnabledAsync(value);
-            OnPropertyChanged(nameof(MicrophoneOutputStatus));
-            OnPropertyChanged(nameof(MicrophoneOutputGlowLevel));
-            AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+            _ = microphoneHubCoordinator.SetEnabledAsync(value);
         }
     }
 
     public float MicrophoneHubPeakPercent
     {
-        get => microphoneHubPeakPercent;
-        private set
-        {
-            if (SetField(ref microphoneHubPeakPercent, Math.Clamp(value, 0, 100)))
-            {
-                OnPropertyChanged(nameof(MicrophoneOutputGlowLevel));
-            }
-        }
+        get => microphoneHubCoordinator.Snapshot.AggregatePeakPercent;
     }
 
     public float ComputerMicrophonePeakPercent
     {
-        get => computerMicrophonePeakPercent;
-        private set => SetField(ref computerMicrophonePeakPercent, Math.Clamp(value, 0, 100));
+        get => microphoneHubCoordinator.Snapshot.ComputerPeakPercent;
     }
 
     public float MicrophoneOutputGlowLevel =>
@@ -531,86 +562,55 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
 
     public float MicrophoneOutputVolumePercent
     {
-        get => microphoneOutputVolumePercent;
+        get => microphoneHubCoordinator.Snapshot.VolumePercent;
         set
         {
-            if (SetField(ref microphoneOutputVolumePercent, Math.Clamp(value, 0, 100)) &&
-                !applyingSettings)
+            if (!applyingSettings)
             {
-                OnPropertyChanged(nameof(MicrophoneOutputGlowLevel));
-                AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+                microphoneHubCoordinator.SetVolume(value);
             }
         }
     }
 
     public bool MicrophoneOutputMuted
     {
-        get => microphoneOutputMuted;
+        get => microphoneHubCoordinator.Snapshot.IsMuted;
         set
         {
-            if (SetField(ref microphoneOutputMuted, value) && !applyingSettings)
+            if (!applyingSettings)
             {
-                OnPropertyChanged(nameof(MicrophoneOutputGlowLevel));
-                AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+                microphoneHubCoordinator.SetMuted(value);
             }
         }
     }
 
     public bool MicrophoneMonitoringEnabled
     {
-        get => microphoneMonitoringEnabled;
+        get => microphoneHubCoordinator.Snapshot.IsMonitoringEnabled;
         set
         {
-            if (SetField(ref microphoneMonitoringEnabled, value) && !applyingSettings)
+            if (!applyingSettings)
             {
-                if (!value)
-                {
-                    _ = ResetMicrophoneMonitoringRoutesAsync();
-                }
-                AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+                _ = microphoneHubCoordinator.SetMonitoringEnabledAsync(value);
             }
         }
     }
 
     public string MicrophoneOutputStatus
     {
-        get
-        {
-            if (!MicrophoneOutputEnabled)
-            {
-                return "麦克风中枢已关闭";
-            }
-
-            if (SelectedMicrophoneOutputDevice is null)
-            {
-                return "未检测到虚拟音频线；需安装 VB-CABLE、VoiceMeeter 或聆界虚拟麦克风驱动";
-            }
-
-            IAudioDevice? recordingDevice = FindPairedRecordingEndpoint(
-                SelectedMicrophoneOutputDevice,
-                RecordingDevices);
-            return recordingDevice is null
-                ? $"已找到 {SelectedMicrophoneOutputDevice.DisplayName}，但未找到配对的 Windows 录音端点"
-                : $"已绑定录音设备：{recordingDevice.DisplayName}";
-        }
+        get => microphoneHubCoordinator.Snapshot.OutputStatus;
     }
 
     public bool FollowSystemDefaultPlayback
     {
-        get => followSystemDefaultPlayback;
+        get => audioOutputCoordinator.Snapshot.FollowSystemDefault;
         set
         {
-            if (!SetField(ref followSystemDefaultPlayback, value) || applyingSettings)
+            if (!applyingSettings && value != FollowSystemDefaultPlayback)
             {
-                return;
+                _ = audioOutputCoordinator.SetFollowSystemDefaultAsync(value);
+                AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
             }
-
-            if (value)
-            {
-                _ = RefreshOutputsAsync(null);
-            }
-
-            AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -639,15 +639,9 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
 
         initialized = true;
         applyingSettings = true;
-        MasterVolumePercent = Math.Clamp(preferredMasterVolume, 0f, 1f) * 100;
         LocalSourceVolumePercent = Math.Clamp(localSourceVolume, 0f, 1f) * 100;
         IsLocalSourceMuted = localSourceMuted;
-        FollowSystemDefaultPlayback = followSystemDefault;
         automaticRoutingEnabled = enableAutomaticRouting;
-        MicrophoneOutputVolumePercent = Math.Clamp(preferredMicrophoneOutputVolume, 0f, 1f) * 100;
-        MicrophoneOutputMuted = microphoneOutputMuted;
-        MicrophoneOutputEnabled = microphoneOutputEnabled;
-        MicrophoneMonitoringEnabled = microphoneOutputEnabled && microphoneMonitoringEnabled;
         RoutingRules.Clear();
         foreach (ListenSphere.Configuration.AudioRoutingRuleSettings rule in savedRoutingRules ?? [])
         {
@@ -658,11 +652,10 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         {
             rememberedChannelLayouts[layout.ChannelId] = layout;
         }
-        configuredOutputRoutes.Clear();
-        foreach (ListenSphere.Configuration.AudioOutputRouteSettings route in savedOutputRoutes ?? [])
-        {
-            configuredOutputRoutes[new OutputRouteKey(route.ChannelId, route.DeviceId)] = route;
-        }
+        localAudioRoutingCoordinator.ConfigureRoutes(savedOutputRoutes ?? []);
+        localAudioRoutingCoordinator.SetLocalSourceGain(
+            LocalSourceVolumePercent / 100f,
+            IsLocalSourceMuted);
         OnPropertyChanged(nameof(AutomaticRoutingEnabled));
         OnPropertyChanged(nameof(AutomaticRoutingStatus));
         applyingSettings = false;
@@ -673,36 +666,35 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         usbHost.StatusChanged += OnUsbStatusChanged;
         usbHost.SessionChanged += OnUsbSessionChanged;
         usbHost.Faulted += OnUsbHostFaulted;
-        deviceNotifications.Changed += OnDeviceChanged;
-        await server.StartAsync();
-        RestartDiscoveryPublisher();
-        NetworkChange.NetworkAddressChanged += OnNetworkAddressChanged;
-        NetworkStatus =
-            $"正在发布 {ListenSphereDiscovery.QualifiedServiceName} · TCP {server.Port}";
-        await EnsureBluetoothListeningAsync(CancellationToken.None);
-        await usbHost.StartAsync(CancellationToken.None);
-        UsbStatus = "正在等待原生 USB 设备";
-        await RefreshOutputsAsync(
-            preferredPlaybackDeviceId,
-            preferredMicrophoneOutputDeviceId,
-            preferredMicrophoneMonitoringDeviceId,
-            preferredComputerMicrophoneDeviceId);
-        if (MicrophoneOutputEnabled)
+        await transportCoordinator.InitializeAsync();
+        await remoteDeviceCoordinator.InitializeAsync();
+        initializingAudioOutput = true;
+        try
         {
-            await EnsureComputerMicrophoneCaptureAsync();
+            await audioOutputCoordinator.InitializeAsync(
+                preferredPlaybackDeviceId,
+                Math.Clamp(preferredMasterVolume, 0f, 1f) * 100,
+                followSystemDefault);
+            ApplyAudioOutputSnapshot(audioOutputCoordinator.Snapshot);
+            AudioOutputSnapshot output = audioOutputCoordinator.Snapshot;
+            await microphoneHubCoordinator.InitializeAsync(
+                output.Devices,
+                output.SelectedDevice?.Id,
+                preferredMicrophoneOutputDeviceId,
+                preferredMicrophoneMonitoringDeviceId,
+                preferredComputerMicrophoneDeviceId,
+                microphoneOutputEnabled,
+                microphoneMonitoringEnabled,
+                Math.Clamp(preferredMicrophoneOutputVolume, 0f, 1f) * 100,
+                microphoneOutputMuted);
+            ApplyMicrophoneHubSnapshot(microphoneHubCoordinator.Snapshot);
+            await UpdateLocalAudioRoutingAsync();
         }
-        audioLoop = ConsumeAudioAsync(audioLifetime.Token);
-        bluetoothAudioLoop = ConsumeBluetoothAudioAsync(audioLifetime.Token);
-        usbAudioLoop = ConsumeUsbAudioAsync(audioLifetime.Token);
-        bluetoothRecoveryLoop = RecoverBluetoothAvailabilityAsync(audioLifetime.Token);
-        mixerLoop = PlayMixedAudioAsync(audioLifetime.Token);
-        pairingCodeCountdownLoop = MonitorPairingCodeAsync(audioLifetime.Token);
-        await RefreshTrustedDevicesAsync();
-        UpdateDiagnosticSnapshot(
-            server.AudioReceiver.Statistics,
-            (playback as IAudioPlaybackDiagnostics)?.Statistics ??
-            new AudioPlaybackStatistics(0, 0, 0, 0, 0, 0),
-            remoteMixer.Statistics);
+        finally
+        {
+            initializingAudioOutput = false;
+        }
+        remoteAudioCoordinator.Initialize();
     }
 
     public async Task ApplyAudioSettingsAsync(
@@ -715,8 +707,6 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         applyingSettings = true;
         try
         {
-            MasterVolumePercent = Math.Clamp(masterVolume, 0f, 1f) * 100;
-            FollowSystemDefaultPlayback = followSystemDefault;
             rememberedChannelSettings.Clear();
             foreach (ListenSphere.Configuration.ChannelSettings settings in channels)
             {
@@ -727,6 +717,7 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
                 if (groupBusesByName.TryGetValue(settings.Name, out GroupBusItemViewModel? group))
                 {
                     group.Apply(settings.Volume, settings.IsMuted, settings.EqualizerPreset);
+                    UpdateGroupMixerBus(group);
                 }
             }
             foreach (ListenSphere.Configuration.ChannelSettings settings in channels)
@@ -753,25 +744,17 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
                     settings.VoiceDuckingReductionDb);
             }
 
-            IAudioDevice? output = followSystemDefault
-                ? PlaybackDevices.FirstOrDefault(device => device.IsDefault)
-                : PlaybackDevices.FirstOrDefault(device =>
-                    string.Equals(device.Id, playbackDeviceId, StringComparison.Ordinal));
-            if (output is not null)
-            {
-                SelectedPlaybackDevice = output;
-            }
         }
         finally
         {
             applyingSettings = false;
         }
 
-        if (SelectedPlaybackDevice is not null)
-        {
-            await SwitchPlaybackAsync(SelectedPlaybackDevice, synchronizeMasterVolume: false);
-            await SetMasterVolumeAsync();
-        }
+        await audioOutputCoordinator.ApplySettingsAsync(
+            playbackDeviceId,
+            Math.Clamp(masterVolume, 0f, 1f) * 100,
+            followSystemDefault);
+        ApplyAudioOutputSnapshot(audioOutputCoordinator.Snapshot);
 
         AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -793,7 +776,7 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             .ToArray();
 
     public IReadOnlyList<ListenSphere.Configuration.AudioOutputRouteSettings>
-        CaptureOutputRoutes() => configuredOutputRoutes.Values.ToArray();
+        CaptureOutputRoutes() => localAudioRoutingCoordinator.CaptureRoutes();
 
     public void RegisterLocalApplicationSource(
         Guid channelId,
@@ -801,1066 +784,640 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         string displayName,
         string identityKey)
     {
-        if (channelId == Guid.Empty || processId <= 0 || string.IsNullOrWhiteSpace(identityKey))
-        {
-            return;
-        }
-
-        localApplicationSources.TryGetValue(
+        localAudioRoutingCoordinator.RegisterApplicationSource(
             channelId,
-            out LocalApplicationSource? previousSource);
-        localApplicationSources[channelId] = new LocalApplicationSource(
             processId,
             displayName,
             identityKey);
-        if (previousSource is not null && previousSource.ProcessId != processId)
-        {
-            _ = RestartLocalApplicationCaptureAsync(channelId);
-            return;
-        }
-
-        if (configuredOutputRoutes.Keys.Any(key => key.ChannelId == channelId))
-        {
-            _ = EnsureLocalApplicationCaptureAsync(channelId);
-        }
     }
 
     public async Task UnregisterLocalApplicationSourceAsync(Guid channelId)
     {
-        localApplicationSources.TryRemove(channelId, out _);
-        if (activeLocalApplicationCaptures.TryRemove(
-                channelId,
-                out WasapiProcessLoopbackCaptureSource? capture))
-        {
-            await capture.DisposeAsync();
-        }
+        await localAudioRoutingCoordinator.UnregisterApplicationSourceAsync(channelId);
     }
 
-    private async Task RefreshOutputsAsync() =>
-        await RefreshOutputsAsync(SelectedPlaybackDevice?.Id);
+    private async Task RefreshOutputsAsync()
+    {
+        await audioOutputCoordinator.RefreshAsync();
+        ApplyAudioOutputSnapshot(audioOutputCoordinator.Snapshot);
+        await RefreshMicrophoneDevicesAsync();
+    }
 
     public async Task RefreshAsync()
     {
-        RestartDiscoveryPublisher();
-        await EnsureBluetoothListeningAsync(CancellationToken.None);
-        await RefreshOutputsAsync(SelectedPlaybackDevice?.Id);
-        await RefreshTrustedDevicesAsync();
+        await transportCoordinator.RefreshAsync();
+        await RefreshOutputsAsync();
+        await remoteDeviceCoordinator.RefreshTrustedDevicesAsync();
     }
 
-    private void OnNetworkAddressChanged(object? sender, EventArgs eventArgs)
+    private void OnTransportSnapshotChanged(object? sender, TransportSnapshot snapshot)
     {
-        _ = Application.Current.Dispatcher.BeginInvoke(RefreshWirelessManualEndpoint);
-        networkChangeDebounce?.Cancel();
-        networkChangeDebounce?.Dispose();
-        networkChangeDebounce = CancellationTokenSource.CreateLinkedTokenSource(
-            audioLifetime.Token);
-        _ = RestartDiscoveryPublisherAfterDelayAsync(networkChangeDebounce.Token);
-    }
-
-    private async Task RestartDiscoveryPublisherAfterDelayAsync(
-        CancellationToken cancellationToken)
-    {
-        try
+        void ApplySnapshot()
         {
-            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken)
-                .ConfigureAwait(false);
-            await Application.Current.Dispatcher.InvokeAsync(RestartDiscoveryPublisher);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception)
-        {
-            Log.Warning(exception, "Failed to republish mDNS after network change");
-        }
-    }
-
-    private void RestartDiscoveryPublisher()
-    {
-        RefreshWirelessManualEndpoint();
-        MdnsControllerPublisher replacement = new(Identity, server.Port);
-        MdnsControllerPublisher? previous = publisher;
-        publisher = replacement;
-        previous?.Dispose();
-        NetworkStatus =
-            $"正在发布 {ListenSphereDiscovery.QualifiedServiceName} · TCP {server.Port}";
-    }
-
-    private void RefreshWirelessManualEndpoint()
-    {
-        IReadOnlyList<System.Net.IPAddress> addresses =
-            ListenSphereDiscovery.GetManualConnectAddresses();
-        WirelessIpAddressText = addresses.Count == 0
-            ? "IP 地址：等待网络"
-            : $"IP 地址：{string.Join(" / ", addresses)}";
-        WirelessPortText = $"端口：{server.Port}";
-    }
-
-    private async Task RecoverBluetoothAvailabilityAsync(CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            await EnsureBluetoothListeningAsync(cancellationToken);
-            await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
-        }
-    }
-
-    private async Task EnsureBluetoothListeningAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await bluetoothHost.StartAsync(cancellationToken);
-            await Application.Current.Dispatcher.InvokeAsync(() =>
-                BluetoothStatus = "RFCOMM 音频服务已开启");
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception)
-        {
-            bool changed = !string.Equals(
-                BluetoothStatus,
-                "蓝牙不可用 · 开启系统蓝牙后将自动重试",
-                StringComparison.Ordinal);
-            await Application.Current.Dispatcher.InvokeAsync(() =>
-                BluetoothStatus = "蓝牙不可用 · 开启系统蓝牙后将自动重试");
-            if (changed)
+            bool transportChanged = projectedTransport != snapshot.SelectedTransport;
+            projectedTransport = snapshot.SelectedTransport;
+            OnPropertyChanged(nameof(SelectedTransport));
+            OnPropertyChanged(nameof(IsWirelessSelected));
+            OnPropertyChanged(nameof(IsBluetoothSelected));
+            OnPropertyChanged(nameof(IsWiredSelected));
+            OnPropertyChanged(nameof(EmptyTransportText));
+            OnPropertyChanged(nameof(NetworkStatus));
+            OnPropertyChanged(nameof(WirelessIpAddressText));
+            OnPropertyChanged(nameof(WirelessPortText));
+            OnPropertyChanged(nameof(BluetoothStatus));
+            OnPropertyChanged(nameof(UsbStatus));
+            if (transportChanged)
             {
-                Log.Warning(exception, "Bluetooth unavailable; automatic retry is active");
+                RebuildVisibleChannels();
             }
         }
+
+        if (Application.Current.Dispatcher.CheckAccess())
+        {
+            ApplySnapshot();
+        }
+        else
+        {
+            _ = Application.Current.Dispatcher.BeginInvoke(ApplySnapshot);
+        }
     }
 
-    private async Task RefreshOutputsAsync(
-        string? preferredDeviceId,
+    private void OnRemoteDeviceSnapshotChanged(
+        object? sender,
+        RemoteDeviceSnapshot snapshot)
+    {
+        void ApplySnapshot()
+        {
+            OnPropertyChanged(nameof(PairingCode));
+            OnPropertyChanged(nameof(PairingCodeActionText));
+            OnPropertyChanged(nameof(PairingHint));
+            OnPropertyChanged(nameof(DeleteConfirmationDeviceName));
+            OnPropertyChanged(nameof(IsDeleteConfirmationVisible));
+            ConfirmDeleteCommand.RaiseCanExecuteChanged();
+            CancelDeleteCommand.RaiseCanExecuteChanged();
+
+            if (ReferenceEquals(projectedTrustedDevices, snapshot.TrustedDevices))
+            {
+                return;
+            }
+
+            projectedTrustedDevices = snapshot.TrustedDevices;
+            TrustedDevices.Clear();
+            foreach (TrustedDevice device in snapshot.TrustedDevices)
+            {
+                TrustedDevices.Add(device);
+                RemoteChannelItemViewModel channel = EnsureRemoteChannel(
+                    device.DeviceId,
+                    device.DisplayName,
+                    ParseTransport(device.Transport));
+                foreach (string transport in device.ObservedTransports)
+                {
+                    channel.RememberTransport(ParseTransport(transport));
+                }
+            }
+            RebuildVisibleChannels();
+        }
+
+        if (Application.Current.Dispatcher.CheckAccess())
+        {
+            ApplySnapshot();
+        }
+        else
+        {
+            _ = Application.Current.Dispatcher.BeginInvoke(ApplySnapshot);
+        }
+    }
+
+    private void OnAudioOutputSnapshotChanged(
+        object? sender,
+        AudioOutputSnapshot snapshot)
+    {
+        void ApplySnapshot() => ApplyAudioOutputSnapshot(audioOutputCoordinator.Snapshot);
+        if (Application.Current.Dispatcher.CheckAccess())
+        {
+            ApplySnapshot();
+        }
+        else
+        {
+            _ = Application.Current.Dispatcher.BeginInvoke(ApplySnapshot);
+        }
+    }
+
+    private void ApplyAudioOutputSnapshot(AudioOutputSnapshot snapshot)
+    {
+        bool devicesChanged = !ReferenceEquals(projectedPlaybackDevices, snapshot.Devices);
+        bool selectedChanged = !string.Equals(
+            projectedPlaybackDeviceId,
+            snapshot.SelectedDevice?.Id,
+            StringComparison.Ordinal);
+        projectedPlaybackDevices = snapshot.Devices;
+        projectedPlaybackDeviceId = snapshot.SelectedDevice?.Id;
+
+        if (devicesChanged)
+        {
+            PlaybackDevices.Clear();
+            foreach (IAudioDevice device in snapshot.Devices)
+            {
+                PlaybackDevices.Add(device);
+            }
+        }
+
+        OnPropertyChanged(nameof(SelectedPlaybackDevice));
+        OnPropertyChanged(nameof(SelectedPlaybackDeviceId));
+        OnPropertyChanged(nameof(SelectedPlaybackDeviceIndex));
+        OnPropertyChanged(nameof(SelectedPlaybackDeviceDisplayName));
+        OnPropertyChanged(nameof(FollowSystemDefaultPlayback));
+        OnPropertyChanged(nameof(MasterVolumePercent));
+        OnPropertyChanged(nameof(IsSystemMuted));
+        OnPropertyChanged(nameof(SystemMuteButtonText));
+        if (!string.Equals(projectedAudioOutputStatus, snapshot.Status, StringComparison.Ordinal))
+        {
+            projectedAudioOutputStatus = snapshot.Status;
+            AudioStatus = snapshot.Status;
+        }
+        if (!string.Equals(projectedAudioOutputError, snapshot.ErrorText, StringComparison.Ordinal))
+        {
+            projectedAudioOutputError = snapshot.ErrorText;
+            AudioErrorText = snapshot.ErrorText;
+        }
+
+        if (!initialized || applyingSettings || initializingAudioOutput)
+        {
+            return;
+        }
+        if (devicesChanged)
+        {
+            _ = RefreshMicrophoneDevicesAsync();
+        }
+        if (devicesChanged || selectedChanged)
+        {
+            _ = RefreshOutputProjectionAsync();
+        }
+    }
+
+    private async Task RefreshOutputProjectionAsync()
+    {
+        await UpdateLocalAudioRoutingAsync();
+    }
+
+    private Task UpdateLocalAudioRoutingAsync()
+    {
+        AudioOutputSnapshot output = audioOutputCoordinator.Snapshot;
+        return localAudioRoutingCoordinator.UpdateOutputDevicesAsync(
+            output.Devices,
+            output.Endpoints,
+            output.SelectedDevice?.Id);
+    }
+
+    private void OnLocalAudioRoutingSnapshotChanged(
+        object? sender,
+        LocalAudioRoutingSnapshot snapshot)
+    {
+        void ApplySnapshot() => ApplyLocalAudioRoutingSnapshot(
+            localAudioRoutingCoordinator.Snapshot);
+        if (Application.Current.Dispatcher.CheckAccess())
+        {
+            ApplySnapshot();
+        }
+        else
+        {
+            _ = Application.Current.Dispatcher.BeginInvoke(ApplySnapshot);
+        }
+    }
+
+    private void ApplyLocalAudioRoutingSnapshot(LocalAudioRoutingSnapshot snapshot)
+    {
+        if (snapshot.Revision <= projectedLocalAudioRoutingRevision)
+        {
+            return;
+        }
+        projectedLocalAudioRoutingRevision = snapshot.Revision;
+        AdditionalOutputs.Clear();
+        foreach (LocalAudioOutputDeviceSnapshot output in snapshot.Outputs)
+        {
+            var target = new AdditionalOutputDeviceItemViewModel(
+                output.DeviceId,
+                output.DisplayName,
+                output.VolumePercent,
+                output.IsMuted,
+                audioOutputCoordinator.SetEndpointVolume,
+                (id, muted) => _ = audioOutputCoordinator.SetEndpointMuteAsync(id, muted));
+            foreach (LocalAudioRouteSnapshot route in output.Routes)
+            {
+                target.Routes.Add(new AdditionalOutputRouteItemViewModel(
+                    route.ChannelId,
+                    route.DeviceId,
+                    route.SourceName,
+                    route.IsActive,
+                    RemoveSecondaryOutputRouteAsync));
+            }
+            target.RefreshSummary();
+            AdditionalOutputs.Add(target);
+        }
+        if (!string.IsNullOrWhiteSpace(snapshot.Status))
+        {
+            AudioStatus = snapshot.Status;
+        }
+        if (!string.IsNullOrWhiteSpace(snapshot.ErrorText))
+        {
+            AudioErrorText = snapshot.ErrorText;
+        }
+    }
+
+    private void OnLocalAudioRoutesChanged(object? sender, EventArgs args)
+    {
+        void Notify() => AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+        if (Application.Current.Dispatcher.CheckAccess())
+        {
+            Notify();
+        }
+        else
+        {
+            _ = Application.Current.Dispatcher.BeginInvoke(Notify);
+        }
+    }
+
+    private void OnMicrophoneHubSnapshotChanged(
+        object? sender,
+        MicrophoneHubSnapshot snapshot)
+    {
+        void ApplySnapshot() => ApplyMicrophoneHubSnapshot(microphoneHubCoordinator.Snapshot);
+        if (Application.Current.Dispatcher.CheckAccess())
+        {
+            ApplySnapshot();
+        }
+        else
+        {
+            _ = Application.Current.Dispatcher.BeginInvoke(ApplySnapshot);
+        }
+    }
+
+    private void ApplyMicrophoneHubSnapshot(MicrophoneHubSnapshot snapshot)
+    {
+        MicrophoneHubSnapshot previous = projectedMicrophoneHubSnapshot;
+        if (snapshot.Revision <= previous.Revision)
+        {
+            return;
+        }
+        projectedMicrophoneHubSnapshot = snapshot;
+        if (!ReferenceEquals(previous.RecordingDevices, snapshot.RecordingDevices))
+        {
+            RecordingDevices.Clear();
+            foreach (IAudioDevice device in snapshot.RecordingDevices)
+            {
+                RecordingDevices.Add(device);
+            }
+        }
+        if (!ReferenceEquals(previous.VirtualOutputDevices, snapshot.VirtualOutputDevices))
+        {
+            MicrophoneOutputDevices.Clear();
+            foreach (IAudioDevice device in snapshot.VirtualOutputDevices)
+            {
+                MicrophoneOutputDevices.Add(device);
+            }
+        }
+        if (!string.Equals(
+                previous.SelectedComputerMicrophone?.Id,
+                snapshot.SelectedComputerMicrophone?.Id,
+                StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(SelectedComputerMicrophoneDevice));
+            OnPropertyChanged(nameof(SelectedComputerMicrophoneDeviceId));
+            OnPropertyChanged(nameof(SelectedComputerMicrophoneDeviceDisplayName));
+        }
+        if (!string.Equals(
+                previous.SelectedVirtualOutput?.Id,
+                snapshot.SelectedVirtualOutput?.Id,
+                StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(SelectedMicrophoneOutputDevice));
+            OnPropertyChanged(nameof(SelectedMicrophoneOutputDeviceId));
+            OnPropertyChanged(nameof(SelectedMicrophoneOutputDeviceDisplayName));
+        }
+        if (!string.Equals(
+                previous.SelectedMonitoringDevice?.Id,
+                snapshot.SelectedMonitoringDevice?.Id,
+                StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(SelectedMicrophoneMonitoringDevice));
+            OnPropertyChanged(nameof(SelectedMicrophoneMonitoringDeviceId));
+            OnPropertyChanged(nameof(SelectedMicrophoneMonitoringDeviceDisplayName));
+        }
+        if (previous.IsEnabled != snapshot.IsEnabled)
+        {
+            OnPropertyChanged(nameof(MicrophoneOutputEnabled));
+        }
+        if (previous.IsMonitoringEnabled != snapshot.IsMonitoringEnabled)
+        {
+            OnPropertyChanged(nameof(MicrophoneMonitoringEnabled));
+        }
+        if (Math.Abs(previous.VolumePercent - snapshot.VolumePercent) >= 0.01f)
+        {
+            OnPropertyChanged(nameof(MicrophoneOutputVolumePercent));
+        }
+        if (previous.IsMuted != snapshot.IsMuted)
+        {
+            OnPropertyChanged(nameof(MicrophoneOutputMuted));
+        }
+        if (Math.Abs(previous.AggregatePeakPercent - snapshot.AggregatePeakPercent) >= 0.01f)
+        {
+            OnPropertyChanged(nameof(MicrophoneHubPeakPercent));
+        }
+        if (Math.Abs(previous.ComputerPeakPercent - snapshot.ComputerPeakPercent) >= 0.01f)
+        {
+            OnPropertyChanged(nameof(ComputerMicrophonePeakPercent));
+        }
+        OnPropertyChanged(nameof(MicrophoneOutputGlowLevel));
+        if (!string.Equals(previous.OutputStatus, snapshot.OutputStatus, StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(MicrophoneOutputStatus));
+        }
+        if (!string.IsNullOrWhiteSpace(snapshot.ActivityStatus) && !string.Equals(
+                projectedMicrophoneActivityStatus,
+                snapshot.ActivityStatus,
+                StringComparison.Ordinal))
+        {
+            projectedMicrophoneActivityStatus = snapshot.ActivityStatus;
+            AudioStatus = snapshot.ActivityStatus;
+        }
+        if (!string.IsNullOrWhiteSpace(snapshot.ErrorText) && !string.Equals(
+                projectedMicrophoneError,
+                snapshot.ErrorText,
+                StringComparison.Ordinal))
+        {
+            projectedMicrophoneError = snapshot.ErrorText;
+            AudioErrorText = snapshot.ErrorText;
+        }
+    }
+
+    private void OnMicrophoneHubSettingsChanged(object? sender, EventArgs args)
+    {
+        void Notify() => AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+        if (Application.Current.Dispatcher.CheckAccess())
+        {
+            Notify();
+        }
+        else
+        {
+            _ = Application.Current.Dispatcher.BeginInvoke(Notify);
+        }
+    }
+
+    private void OnAudioOutputEvent(object? sender, AudioOutputEvent outputEvent)
+    {
+        switch (outputEvent.Kind)
+        {
+            case AudioOutputEventKind.DeviceChanged:
+                diagnostics.Record(
+                    DiagnosticSeverity.Information,
+                    "windows.audio-device.changed",
+                    new Dictionary<string, object?>
+                    {
+                        ["change"] = outputEvent.DeviceChange?.ToString()
+                    });
+                break;
+            case AudioOutputEventKind.EndpointReady:
+                diagnostics.Record(
+                    DiagnosticSeverity.Information,
+                    "playback.endpoint.ready",
+                    new Dictionary<string, object?>
+                    {
+                        ["isDefault"] = outputEvent.IsDefault
+                    });
+                break;
+            case AudioOutputEventKind.EndpointFailed:
+                RecordAudioOutputFailure("playback.endpoint.failed", outputEvent.Exception);
+                break;
+            case AudioOutputEventKind.WriteFailed:
+                RecordAudioOutputFailure("playback.write.failed", outputEvent.Exception);
+                break;
+            case AudioOutputEventKind.UnexpectedStop:
+                diagnostics.Record(
+                    outputEvent.Exception is null
+                        ? DiagnosticSeverity.Warning
+                        : DiagnosticSeverity.Error,
+                    "playback.unexpected-stop",
+                    outputEvent.Exception is null
+                        ? null
+                        : new Dictionary<string, object?>
+                        {
+                            ["exceptionType"] = outputEvent.Exception.GetType().Name
+                        });
+                break;
+        }
+    }
+
+    private void RecordAudioOutputFailure(string eventName, Exception? exception) =>
+        diagnostics.Record(
+            DiagnosticSeverity.Error,
+            eventName,
+            exception is null
+                ? null
+                : new Dictionary<string, object?>
+                {
+                    ["exceptionType"] = exception.GetType().Name
+                });
+
+    private async Task RefreshMicrophoneDevicesAsync(
         string? preferredMicrophoneDeviceId = null,
         string? preferredMicrophoneMonitoringDeviceId = null,
         string? preferredComputerMicrophoneDeviceId = null)
     {
-        try
-        {
-            IReadOnlyList<IAudioDevice> devices =
-                await audioDeviceManager.GetPlaybackDevicesAsync(CancellationToken.None);
-            IReadOnlyList<IAudioDevice> recordingDevices =
-                await audioDeviceManager.GetRecordingDevicesAsync(CancellationToken.None);
-            applyingSettings = true;
-            PlaybackDevices.Clear();
-            MicrophoneOutputDevices.Clear();
-            RecordingDevices.Clear();
-            foreach (IAudioDevice device in devices)
-            {
-                PlaybackDevices.Add(device);
-                if (IsVirtualMicrophoneRenderEndpoint(device.DisplayName))
-                {
-                    MicrophoneOutputDevices.Add(device);
-                }
-            }
-            foreach (IAudioDevice device in recordingDevices)
-            {
-                RecordingDevices.Add(device);
-            }
-
-            SelectedPlaybackDevice =
-                (FollowSystemDefaultPlayback
-                    ? devices.FirstOrDefault(device => device.IsDefault)
-                    : devices.FirstOrDefault(device =>
-                        string.Equals(device.Id, preferredDeviceId, StringComparison.Ordinal))) ??
-                devices.FirstOrDefault(device => device.IsDefault) ??
-                devices.FirstOrDefault();
-            SelectedMicrophoneOutputDevice =
-                MicrophoneOutputDevices.FirstOrDefault(device =>
-                    string.Equals(
-                        device.Id,
-                        preferredMicrophoneDeviceId ?? selectedMicrophoneOutputDevice?.Id,
-                        StringComparison.Ordinal)) ??
-                MicrophoneOutputDevices.FirstOrDefault();
-            SelectedMicrophoneMonitoringDevice =
-                devices.FirstOrDefault(device =>
-                    string.Equals(
-                        device.Id,
-                        preferredMicrophoneMonitoringDeviceId ?? selectedMicrophoneMonitoringDevice?.Id,
-                        StringComparison.Ordinal)) ??
-                SelectedPlaybackDevice;
-            SelectedComputerMicrophoneDevice =
-                recordingDevices.FirstOrDefault(device => device.IsDefault) ??
-                recordingDevices.FirstOrDefault(device =>
-                    string.Equals(
-                        device.Id,
-                        preferredComputerMicrophoneDeviceId ??
-                            selectedComputerMicrophoneDevice?.Id,
-                        StringComparison.Ordinal)) ??
-                recordingDevices.FirstOrDefault();
-            OnPropertyChanged(nameof(MicrophoneOutputStatus));
-            applyingSettings = false;
-            if (SelectedPlaybackDevice is null)
-            {
-                await playbackGate.WaitAsync();
-                try
-                {
-                    if (playback is not null)
-                    {
-                        IAudioPlaybackSink previous = playback;
-                        playback = null;
-                        await DisposePlaybackSafelyAsync(previous);
-                    }
-                }
-                finally
-                {
-                    playbackGate.Release();
-                }
-
-                AudioStatus = "没有可用的 Windows 播放设备；远程音频将被接收但不播放。";
-                await RebuildAdditionalOutputsAsync();
-                await EnsureLocalOutputCaptureAsync();
-                return;
-            }
-
-            await SwitchPlaybackAsync(SelectedPlaybackDevice);
-            await ResetMicrophoneOutputRoutesAsync();
-        }
-        catch (Exception exception)
-        {
-            applyingSettings = false;
-            AudioErrorText = $"刷新输出设备失败：{exception.Message}";
-            Log.Error(exception, "Failed to refresh playback endpoints");
-        }
+        AudioOutputSnapshot output = audioOutputCoordinator.Snapshot;
+        await microphoneHubCoordinator.RefreshDevicesAsync(
+            output.Devices,
+            output.SelectedDevice?.Id,
+            preferredMicrophoneDeviceId,
+            preferredMicrophoneMonitoringDeviceId,
+            preferredComputerMicrophoneDeviceId);
+        await UpdateLocalAudioRoutingAsync();
     }
 
-    private static bool IsVirtualMicrophoneRenderEndpoint(string displayName)
+    async ValueTask<RemoteAudioFrameResult> IRemoteAudioFrameProcessor.ProcessAsync(
+        Guid sessionId,
+        byte[] pcm,
+        ulong timestamp,
+        CancellationToken cancellationToken)
     {
-        string normalized = displayName.Trim();
-        return normalized.Contains("CABLE Input", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("VB-Audio", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("VoiceMeeter Input", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("Virtual Cable", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("虚拟音频", StringComparison.OrdinalIgnoreCase);
+        channelsBySession.TryGetValue(sessionId, out RemoteChannelItemViewModel? channel);
+        GroupMixerProcessResult processed = groupMixerCoordinator.Process(sessionId, pcm);
+        float? peak = processed.HasChannel ? processed.Peak : null;
+        if (channel is not null && peak is float observedPeak)
+        {
+            channel.ObservePostProcessingPeak(observedPeak);
+            channel.ObserveLimiterActivity(processed.Dynamics.Limited);
+        }
+
+        await WriteSecondaryOutputRoutesAsync(
+            channel,
+            pcm,
+            timestamp,
+            cancellationToken).ConfigureAwait(false);
+        await WriteMicrophoneOutputAsync(
+            channel,
+            pcm,
+            timestamp,
+            cancellationToken).ConfigureAwait(false);
+        bool isMicrophone = channel?.IsMicrophoneSource == true;
+        if (isMicrophone)
+        {
+            await WriteMicrophoneMonitoringAsync(
+                channel!,
+                pcm,
+                timestamp,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return new RemoteAudioFrameResult(
+            RouteToMainMixer: !isMicrophone,
+            Peak: peak,
+            Dynamics: processed.Dynamics,
+            DuckingActive: processed.DuckingActive);
     }
 
-    private static IAudioDevice? FindPairedRecordingEndpoint(
-        IAudioDevice renderDevice,
-        IEnumerable<IAudioDevice> recordingDevices)
+    bool IGroupMixerSettingsProvider.TryGetChannelSettings(
+        Guid sessionId,
+        out GroupMixerChannelSettings settings)
     {
-        string renderName = renderDevice.DisplayName;
-        string[] preferredNames = renderName.Contains("CABLE", StringComparison.OrdinalIgnoreCase)
-            ? ["CABLE Output", "VB-Audio"]
-            : renderName.Contains("VoiceMeeter", StringComparison.OrdinalIgnoreCase)
-                ? ["VoiceMeeter Output", "VoiceMeeter"]
-                : ["Virtual Cable", "虚拟音频"];
-        return recordingDevices.FirstOrDefault(device => preferredNames.Any(name =>
-            device.DisplayName.Contains(name, StringComparison.OrdinalIgnoreCase)));
-    }
-
-    private async Task SwitchPlaybackAsync(
-        IAudioDevice output,
-        bool synchronizeMasterVolume = true)
-    {
-        await playbackGate.WaitAsync();
-        try
+        if (!channelsBySession.TryGetValue(
+                sessionId,
+                out RemoteChannelItemViewModel? channel))
         {
-            AudioErrorText = string.Empty;
-            if (playback is not null)
-            {
-                IAudioPlaybackSink previous = playback;
-                playback = null;
-                await DisposePlaybackSafelyAsync(previous);
-            }
-
-            var sink = new WasapiPlaybackSink(
-                output.Id,
-                GetPlaybackProfile(output));
-            sink.PlaybackStopped += OnPlaybackStopped;
-            try
-            {
-                await sink.StartAsync(CancellationToken.None);
-                playback = sink;
-            }
-            catch
-            {
-                await DisposePlaybackSafelyAsync(sink);
-                throw;
-            }
-
-            AudioStatus = $"UDP {server.AudioReceiver.Port} · 播放到：{output.DisplayName}";
-            if (synchronizeMasterVolume)
-            {
-                float windowsVolume = await outputVolume.GetVolumeAsync(
-                    output.Id,
-                    CancellationToken.None);
-                bool wasApplyingSettings = applyingSettings;
-                applyingSettings = true;
-                try
-                {
-                    MasterVolumePercent = Math.Clamp(windowsVolume, 0f, 1f) * 100;
-                }
-                finally
-                {
-                    applyingSettings = wasApplyingSettings;
-                }
-            }
-            applyingSystemMute = true;
-            try
-            {
-                IsSystemMuted = await outputVolume.GetMuteAsync(output.Id, CancellationToken.None);
-            }
-            finally
-            {
-                applyingSystemMute = false;
-            }
-            diagnostics.Record(
-                DiagnosticSeverity.Information,
-                "playback.endpoint.ready",
-                new Dictionary<string, object?> { ["isDefault"] = output.IsDefault });
-        }
-        catch (Exception exception)
-        {
-            playback = null;
-            AudioErrorText = $"无法使用输出设备“{output.DisplayName}”：{exception.Message}";
-            Log.Error(exception, "Failed to switch playback endpoint {DeviceId}", output.Id);
-            diagnostics.Record(
-                DiagnosticSeverity.Error,
-                "playback.endpoint.failed",
-                new Dictionary<string, object?> { ["exceptionType"] = exception.GetType().Name });
-        }
-        finally
-        {
-            playbackGate.Release();
-        }
-        await RebuildAdditionalOutputsAsync();
-        await EnsureLocalOutputCaptureAsync();
-    }
-
-    private async Task ConsumeAudioAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await foreach (NetworkAudioFrame frame in
-                server.AudioReceiver.ReadAllAsync(cancellationToken))
-            {
-                channelsBySession.TryGetValue(frame.SessionId, out var channel);
-                Span<float> samples = MemoryMarshal.Cast<byte, float>(frame.Pcm.AsSpan());
-                float gain = ApplyChannelAndGroupProcessing(frame.SessionId, samples, channel);
-                PcmGainProcessor.Apply(frame.Pcm, gain);
-                ChannelDynamicsResult dynamics = ApplyChannelLimiter(
-                    frame.SessionId,
-                    samples,
-                    channel);
-                float? channelPeak = channel is null
-                    ? null
-                    : AudioLevelCalculator.Calculate(
-                        MemoryMarshal.Cast<byte, float>(frame.Pcm)).Peak;
-                if (channel is not null && channelPeak is float observedPeak)
-                {
-                    channel.ObservePostProcessingPeak(observedPeak);
-                }
-                await WriteSecondaryOutputRoutesAsync(
-                    channel,
-                    frame.Pcm,
-                    frame.Timestamp,
-                    cancellationToken).ConfigureAwait(false);
-                await WriteMicrophoneOutputAsync(
-                    channel,
-                    frame.Pcm,
-                    frame.Timestamp,
-                    cancellationToken).ConfigureAwait(false);
-                if (channel?.IsMicrophoneSource == true)
-                {
-                    await WriteMicrophoneMonitoringAsync(
-                        channel,
-                        frame.Pcm,
-                        frame.Timestamp,
-                        cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    remoteMixer.Enqueue(frame.SessionId, frame.Pcm);
-                }
-
-                if (channel is not null &&
-                    channelPeak is float publishedPeak &&
-                    ShouldPublishAudioLevel(frame.SessionId))
-                {
-                    _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                    {
-                        channel.PeakPercent = publishedPeak * 100;
-                        channel.UpdateDynamicsStatus(
-                            dynamics,
-                            channel.IsVoiceDuckingTarget && voiceDucking.IsVoiceActive);
-                    });
-                }
-
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            AudioStatus = "远程音频接收已停止";
-        }
-        catch (Exception exception)
-        {
-            AudioErrorText = $"远程音频播放异常：{exception.Message}";
-            Log.Error(exception, "Remote audio playback loop failed");
-            diagnostics.Record(
-                DiagnosticSeverity.Error,
-                "playback.loop.failed",
-                new Dictionary<string, object?> { ["exceptionType"] = exception.GetType().Name });
-        }
-    }
-
-    private async Task ConsumeBluetoothAudioAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await foreach (BluetoothPcm16Frame frame in
-                bluetoothHost.ReadAudioFramesAsync(cancellationToken))
-            {
-                var pcm = new byte[3_840];
-                Span<float> stereo = MemoryMarshal.Cast<byte, float>(pcm.AsSpan());
-                for (int sample = 0; sample < BluetoothRfcommProbeHost.FrameSamples; sample++)
-                {
-                    int sourceIndex = sample * frame.ChannelCount;
-                    float left = BinaryPrimitives.ReadInt16LittleEndian(
-                        frame.Pcm.AsSpan(sourceIndex * sizeof(short))) / 32768f;
-                    float right = frame.ChannelCount == 2
-                        ? BinaryPrimitives.ReadInt16LittleEndian(
-                            frame.Pcm.AsSpan((sourceIndex + 1) * sizeof(short))) / 32768f
-                        : left;
-                    stereo[sample * 2] = left;
-                    stereo[(sample * 2) + 1] = right;
-                }
-
-                channelsBySession.TryGetValue(frame.SessionId, out var channel);
-                float gain = ApplyChannelAndGroupProcessing(frame.SessionId, stereo, channel);
-                PcmGainProcessor.Apply(pcm, gain);
-                ChannelDynamicsResult dynamics = ApplyChannelLimiter(
-                    frame.SessionId,
-                    stereo,
-                    channel);
-                float? observedPeak = channel is null
-                    ? null
-                    : AudioLevelCalculator.Calculate(stereo).Peak;
-                if (channel is not null && observedPeak is float peak)
-                {
-                    channel.ObservePostProcessingPeak(peak);
-                }
-                float? publishedPeak = channel is not null &&
-                    ShouldPublishAudioLevel(frame.SessionId)
-                    ? observedPeak
-                    : null;
-                await WriteSecondaryOutputRoutesAsync(
-                    channel,
-                    pcm,
-                    frame.Timestamp,
-                    cancellationToken).ConfigureAwait(false);
-                await WriteMicrophoneOutputAsync(
-                    channel,
-                    pcm,
-                    frame.Timestamp,
-                    cancellationToken).ConfigureAwait(false);
-                if (channel?.IsMicrophoneSource == true)
-                {
-                    await WriteMicrophoneMonitoringAsync(
-                        channel,
-                        pcm,
-                        frame.Timestamp,
-                        cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    remoteMixer.RegisterStream(frame.SessionId, preferredStartupFrames: 18);
-                    remoteMixer.Enqueue(frame.SessionId, pcm);
-                }
-                if (channel is not null && publishedPeak is float publishedValue)
-                {
-                    _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                    {
-                        channel.PeakPercent = publishedValue * 100;
-                        channel.UpdateDynamicsStatus(
-                            dynamics,
-                            channel.IsVoiceDuckingTarget && voiceDucking.IsVoiceActive);
-                    });
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception)
-        {
-            AudioErrorText = $"蓝牙音频播放异常：{exception.Message}";
-            Log.Error(exception, "Bluetooth audio playback loop failed");
-        }
-    }
-
-    private async Task ConsumeUsbAudioAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await foreach (UsbPcm16Frame frame in usbHost.ReadAudioFramesAsync(cancellationToken))
-            {
-                var pcm = new byte[3_840];
-                Span<float> stereo = MemoryMarshal.Cast<byte, float>(pcm.AsSpan());
-                for (int sample = 0; sample < UsbAccessoryHost.FrameSamples; sample++)
-                {
-                    int sourceIndex = sample * frame.ChannelCount;
-                    float left = BinaryPrimitives.ReadInt16LittleEndian(
-                        frame.Pcm.AsSpan(sourceIndex * sizeof(short))) / 32768f;
-                    float right = frame.ChannelCount == 2
-                        ? BinaryPrimitives.ReadInt16LittleEndian(
-                            frame.Pcm.AsSpan((sourceIndex + 1) * sizeof(short))) / 32768f
-                        : left;
-                    stereo[sample * 2] = left;
-                    stereo[(sample * 2) + 1] = right;
-                }
-
-                channelsBySession.TryGetValue(frame.SessionId, out var channel);
-                float gain = ApplyChannelAndGroupProcessing(frame.SessionId, stereo, channel);
-                PcmGainProcessor.Apply(pcm, gain);
-                ChannelDynamicsResult dynamics = ApplyChannelLimiter(
-                    frame.SessionId,
-                    stereo,
-                    channel);
-                float? observedPeak = channel is null
-                    ? null
-                    : AudioLevelCalculator.Calculate(stereo).Peak;
-                if (channel is not null && observedPeak is float peak)
-                {
-                    channel.ObservePostProcessingPeak(peak);
-                }
-                float? publishedPeak = channel is not null &&
-                    ShouldPublishAudioLevel(frame.SessionId)
-                    ? observedPeak
-                    : null;
-                await WriteSecondaryOutputRoutesAsync(
-                    channel,
-                    pcm,
-                    frame.Timestamp,
-                    cancellationToken).ConfigureAwait(false);
-                await WriteMicrophoneOutputAsync(
-                    channel,
-                    pcm,
-                    frame.Timestamp,
-                    cancellationToken).ConfigureAwait(false);
-                if (channel?.IsMicrophoneSource == true)
-                {
-                    await WriteMicrophoneMonitoringAsync(
-                        channel,
-                        pcm,
-                        frame.Timestamp,
-                        cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    remoteMixer.RegisterStream(frame.SessionId, preferredStartupFrames: 6);
-                    remoteMixer.Enqueue(frame.SessionId, pcm);
-                }
-                if (channel is not null && publishedPeak is float publishedValue)
-                {
-                    _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                    {
-                        channel.PeakPercent = publishedValue * 100;
-                        channel.UpdateDynamicsStatus(
-                            dynamics,
-                            channel.IsVoiceDuckingTarget && voiceDucking.IsVoiceActive);
-                    });
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception)
-        {
-            AudioErrorText = $"USB 音频播放异常：{exception.Message}";
-            Log.Error(exception, "USB audio playback loop failed");
-        }
-    }
-
-    private bool ShouldPublishAudioLevel(Guid sessionId)
-    {
-        long now = Stopwatch.GetTimestamp();
-        if (meterUpdatesBySession.TryGetValue(sessionId, out long previous) &&
-            Stopwatch.GetElapsedTime(previous, now) < TimeSpan.FromMilliseconds(33))
-        {
+            settings = default;
             return false;
         }
 
-        meterUpdatesBySession[sessionId] = now;
+        settings = new GroupMixerChannelSettings(
+            channel.EffectiveGain,
+            channel.IsEqualizerEnabled,
+            channel.EqualizerGains,
+            channel.DynamicsSettings,
+            channel.SelectedChannelGroup,
+            channel.IsVoiceDuckingTrigger,
+            channel.IsVoiceDuckingTarget,
+            channel.VoiceDuckingReductionDb);
         return true;
     }
 
-    private float ApplyChannelAndGroupProcessing(
-        Guid sessionId,
-        Span<float> samples,
-        RemoteChannelItemViewModel? channel)
+    private void OnRemoteAudioMeterChanged(
+        object? sender,
+        RemoteAudioMeterUpdate update)
     {
-        if (channel is null)
+        _ = Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            return 1f;
-        }
-
-        ChannelDynamicsProcessor dynamics = dynamicsBySession.GetOrAdd(
-            sessionId,
-            _ => new ChannelDynamicsProcessor());
-        ChannelDynamicsResult result = dynamics.ProcessBeforeEqualizer(
-            samples,
-            channel.DynamicsSettings);
-        dynamicsResultsBySession[sessionId] = result;
-        if (channel.IsVoiceDuckingTrigger)
-        {
-            voiceDucking.ObserveVoice(samples);
-        }
-
-        if (channel.IsEqualizerEnabled)
-        {
-            equalizersBySession.GetOrAdd(sessionId, _ => new GraphicEqualizer())
-                .Process(samples, channel.EqualizerGains);
-        }
-
-        if (!groupBusesByName.TryGetValue(
-                channel.SelectedChannelGroup,
-                out GroupBusItemViewModel? group))
-        {
-            float duckingGain = channel.IsVoiceDuckingTarget
-                ? voiceDucking.GetTargetGain(channel.VoiceDuckingReductionDb)
-                : 1f;
-            return channel.EffectiveGain * duckingGain;
-        }
-
-        if (group.HasEqualization)
-        {
-            groupEqualizersBySession.GetOrAdd(sessionId, _ => new GraphicEqualizer())
-                .Process(samples, group.EqualizerGains);
-        }
-
-        float groupDuckingGain = channel.IsVoiceDuckingTarget
-            ? voiceDucking.GetTargetGain(channel.VoiceDuckingReductionDb)
-            : 1f;
-        return channel.EffectiveGain * group.EffectiveGain * groupDuckingGain;
-    }
-
-    private ChannelDynamicsResult ApplyChannelLimiter(
-        Guid sessionId,
-        Span<float> samples,
-        RemoteChannelItemViewModel? channel)
-    {
-        if (channel is null || !dynamicsBySession.TryGetValue(sessionId, out var dynamics))
-        {
-            return default;
-        }
-
-        dynamicsResultsBySession.TryGetValue(sessionId, out ChannelDynamicsResult previous);
-        ChannelDynamicsResult result = dynamics.ApplyLimiter(
-            samples,
-            channel.DynamicsSettings,
-            previous);
-        dynamicsResultsBySession[sessionId] = result;
-        channel.ObserveLimiterActivity(result.Limited);
-        return result;
-    }
-
-    private async Task PlayMixedAudioAsync(CancellationToken cancellationToken)
-    {
-        var mixedPcm = new byte[3_840];
-        ulong timestamp = 0;
-        long ticks = 0;
-        try
-        {
-            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(10));
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            if (channelsBySession.TryGetValue(
+                    update.SessionId,
+                    out RemoteChannelItemViewModel? channel))
             {
-                if (remoteMixer.TryMixNext(mixedPcm))
+                channel.PeakPercent = update.Peak * 100;
+                channel.UpdateDynamicsStatus(update.Dynamics, update.DuckingActive);
+            }
+        });
+    }
+
+    private void OnRemoteAudioSnapshotChanged(
+        object? sender,
+        RemoteAudioSnapshot snapshot)
+    {
+        _ = Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            foreach (UdpAudioSessionStatistics session in snapshot.NetworkSessions)
+            {
+                if (channelsBySession.TryGetValue(
+                        session.SessionId,
+                        out RemoteChannelItemViewModel? channel) &&
+                    channel.UpdateNetworkQuality(session))
                 {
-                    masterLimiter.Process(mixedPcm);
-                    await WritePlaybackFrameAsync(
-                        new AudioFrame(
-                            mixedPcm,
-                            AudioFormat.Default,
-                            480,
-                            timestamp),
-                        cancellationToken).ConfigureAwait(false);
-                }
-
-                timestamp += 480;
-                ticks++;
-                if (ticks % 100 == 0)
-                {
-                    UdpAudioReceiverStatistics network = server.AudioReceiver.Statistics;
-                    AudioPlaybackStatistics audio =
-                        (playback as IAudioPlaybackDiagnostics)?.Statistics ??
-                        new AudioPlaybackStatistics(0, 0, 0, 0, 0, 0);
-                    RemoteMixerStatistics mixer = remoteMixer.Statistics;
-                    MasterLimiterStatistics limiter = masterLimiter.Statistics;
-                    UdpAudioSessionStatistics[] sessionStatistics =
-                        server.AudioReceiver.SessionStatistics.ToArray();
-                    BluetoothAudioSessionStatistics[] bluetoothStatistics =
-                        bluetoothHost.SessionStatistics.ToArray();
-                    UpdateDiagnosticSnapshot(network, audio, mixer, bluetoothStatistics);
-                    _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                    {
-                        foreach (UdpAudioSessionStatistics session in sessionStatistics)
+                    diagnostics.Record(
+                        DiagnosticSeverity.Warning,
+                        "audio.channel.quality-warning",
+                        new Dictionary<string, object?>
                         {
-                            if (channelsBySession.TryGetValue(
-                                    session.SessionId,
-                                    out RemoteChannelItemViewModel? channel))
-                            {
-                                if (channel.UpdateNetworkQuality(session))
-                                {
-                                    diagnostics.Record(
-                                        DiagnosticSeverity.Warning,
-                                        "audio.channel.quality-warning",
-                                        new Dictionary<string, object?>
-                                        {
-                                            ["targetBufferMs"] = session.TargetBufferMilliseconds,
-                                            ["jitterMs"] = Math.Round(session.EstimatedJitterMilliseconds, 1)
-                                        });
-                                }
-                            }
-                        }
-
-                        foreach (BluetoothAudioSessionStatistics session in bluetoothStatistics)
-                        {
-                            if (channelsBySession.TryGetValue(
-                                    session.SessionId,
-                                    out RemoteChannelItemViewModel? channel) &&
-                                channel.UpdateBluetoothQuality(session))
-                            {
-                                diagnostics.Record(
-                                    DiagnosticSeverity.Warning,
-                                    "audio.bluetooth.quality-warning",
-                                    new Dictionary<string, object?>
-                                    {
-                                        ["codec"] = session.Codec.ToString(),
-                                        ["channels"] = session.ChannelCount,
-                                        ["queueDepth"] = session.QueueDepth,
-                                        ["jitterMs"] = Math.Round(
-                                            session.EstimatedJitterMilliseconds,
-                                            1)
-                                    });
-                            }
-                        }
-
-                        UpdateBluetoothDuplexStatus(bluetoothStatistics);
-
-                        AudioStatus =
-                            $"UDP {server.AudioReceiver.Port} · 混音 {mixer.ActiveStreams} 路" +
-                            $" · 缺帧 {mixer.StreamUnderflows:N0}" +
-                            $" · 丢包 {network.EstimatedLostDatagrams:N0}" +
-                            $" · 网络缓冲 {network.AdaptiveTargetMilliseconds} ms" +
-                            $" · 抖动 {network.EstimatedJitterMilliseconds:F1} ms" +
-                            $" · 队列溢出 {mixer.StreamOverflows:N0}" +
-                            $" · 限幅 {limiter.LimitedSamples:N0}" +
-                            $" · 播放缓冲 {audio.BufferedMilliseconds} ms" +
-                            $" · 漂移 {audio.EstimatedClockDriftPpm:F0} ppm" +
-                            FormatBluetoothAudioStatus(bluetoothStatistics);
-                    });
+                            ["targetBufferMs"] = session.TargetBufferMilliseconds,
+                            ["jitterMs"] = Math.Round(
+                                session.EstimatedJitterMilliseconds,
+                                1)
+                        });
                 }
             }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return;
-        }
-        catch (Exception exception)
-        {
-            AudioErrorText = $"远程混音播放异常：{exception.Message}";
-            Log.Error(exception, "Remote mixer playback loop failed");
-            diagnostics.Record(
-                DiagnosticSeverity.Error,
-                "mixer.loop.failed",
-                new Dictionary<string, object?> { ["exceptionType"] = exception.GetType().Name });
-        }
-    }
 
-    private async Task WritePlaybackFrameAsync(
-        AudioFrame frame,
-        CancellationToken cancellationToken)
-    {
-        IAudioPlaybackSink? failedPlayback = null;
-        Exception? playbackFailure = null;
-        await playbackGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (playback is not null)
+            foreach (BluetoothAudioSessionStatistics session in snapshot.BluetoothSessions)
             {
-                try
+                if (channelsBySession.TryGetValue(
+                        session.SessionId,
+                        out RemoteChannelItemViewModel? channel) &&
+                    channel.UpdateBluetoothQuality(session))
                 {
-                    await playback.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
-                {
-                    failedPlayback = playback;
-                    playback = null;
-                    playbackFailure = exception;
+                    diagnostics.Record(
+                        DiagnosticSeverity.Warning,
+                        "audio.bluetooth.quality-warning",
+                        new Dictionary<string, object?>
+                        {
+                            ["codec"] = session.Codec.ToString(),
+                            ["channels"] = session.ChannelCount,
+                            ["queueDepth"] = session.QueueDepth,
+                            ["jitterMs"] = Math.Round(
+                                session.EstimatedJitterMilliseconds,
+                                1)
+                        });
                 }
             }
-        }
-        finally
-        {
-            playbackGate.Release();
-        }
 
-        if (failedPlayback is not null && playbackFailure is not null)
-        {
-            await DisposePlaybackSafelyAsync(failedPlayback).ConfigureAwait(false);
-            AudioErrorText = $"播放设备暂时不可用，正在自动恢复：{playbackFailure.Message}";
-            diagnostics.Record(
-                DiagnosticSeverity.Warning,
-                "playback.write.failed",
-                new Dictionary<string, object?>
-                {
-                    ["exceptionType"] = playbackFailure.GetType().Name
-                });
-            OnDeviceChanged(this, WindowsDeviceChange.StateChanged);
-        }
+            UpdateBluetoothDuplexStatus(snapshot.BluetoothSessions);
+            AudioStatus = snapshot.Status;
+            if (!string.IsNullOrWhiteSpace(snapshot.ErrorText))
+            {
+                AudioErrorText = snapshot.ErrorText;
+            }
+        });
     }
-
     public async Task AddSecondaryOutputRouteAsync(Guid channelId, string deviceId)
     {
         RemoteChannelItemViewModel? channel = RemoteChannels.FirstOrDefault(
             item => item.ChannelId == channelId && item.IsOnline);
-        IAudioDevice? device = PlaybackDevices.FirstOrDefault(
-            item => string.Equals(item.Id, deviceId, StringComparison.Ordinal));
         bool isLocalSound = channelId == LocalSoundChannelId;
-        bool isLocalApplication = localApplicationSources.TryGetValue(
-            channelId,
-            out LocalApplicationSource? localApplication);
-        if ((!isLocalSound && !isLocalApplication && channel is null) || device is null ||
-            string.Equals(SelectedPlaybackDevice?.Id, deviceId, StringComparison.Ordinal))
+        string? localApplicationName =
+            localAudioRoutingCoordinator.GetApplicationSourceName(channelId);
+        if (!isLocalSound && localApplicationName is null && channel is null)
         {
             return;
         }
-
-        var key = new OutputRouteKey(channelId, deviceId);
-        configuredOutputRoutes[key] = new ListenSphere.Configuration.AudioOutputRouteSettings(
-            channelId,
-            deviceId,
-            isLocalSound
-                ? "本地声音"
-                : isLocalApplication
-                    ? localApplication!.DisplayName
-                    : channel!.DisplayName);
-        await EnsureSecondaryOutputRouteAsync(key, device);
-        await EnsureLocalOutputCaptureAsync();
-        if (isLocalApplication)
-        {
-            await EnsureLocalApplicationCaptureAsync(channelId);
-        }
-        await RebuildAdditionalOutputsAsync();
-        AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
         string sourceName = isLocalSound
             ? "本地声音"
-            : isLocalApplication
-                ? localApplication!.DisplayName
+            : localApplicationName is not null
+                ? localApplicationName
                 : channel!.DisplayName;
-        AudioStatus = $"已将“{sourceName}”同时路由到 {device.DisplayName}。";
+        await localAudioRoutingCoordinator.AddRouteAsync(
+            channelId,
+            deviceId,
+            sourceName);
     }
 
     public async Task RemoveSecondaryOutputRouteAsync(Guid channelId, string deviceId)
     {
-        var key = new OutputRouteKey(channelId, deviceId);
-        configuredOutputRoutes.TryRemove(key, out _);
-        if (activeOutputRoutes.TryRemove(key, out SecondaryPlaybackRoute? route))
-        {
-            await route.DisposeAsync();
-        }
-        await EnsureLocalOutputCaptureAsync();
-        if (!configuredOutputRoutes.Keys.Any(key => key.ChannelId == channelId) &&
-            activeLocalApplicationCaptures.TryRemove(
-                channelId,
-                out WasapiProcessLoopbackCaptureSource? capture))
-        {
-            await capture.DisposeAsync();
-        }
-        await RebuildAdditionalOutputsAsync();
-        AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+        LocalAudioRouteSnapshot? route = localAudioRoutingCoordinator
+            .GetRoutes(channelId)
+            .FirstOrDefault(candidate => string.Equals(
+                candidate.DeviceId,
+                deviceId,
+                StringComparison.Ordinal));
+        Task cleanup = localAudioRoutingCoordinator.RemoveRouteAsync(channelId, deviceId);
+        ApplyLocalAudioRoutingSnapshot(localAudioRoutingCoordinator.Snapshot);
+        AudioStatus = route is null
+            ? "附加输出路由已移除。"
+            : $"已从 {route.DeviceName} 移除“{route.SourceName}”。";
+        await cleanup;
     }
 
     public IReadOnlyList<ApplicationOutputRouteInfo> GetApplicationOutputRoutes(Guid channelId)
     {
-        return configuredOutputRoutes
-            .Where(pair => pair.Key.ChannelId == channelId)
-            .Select(pair =>
-            {
-                IAudioDevice? device = PlaybackDevices.FirstOrDefault(candidate =>
-                    string.Equals(candidate.Id, pair.Key.DeviceId, StringComparison.Ordinal));
-                return new ApplicationOutputRouteInfo(
-                    pair.Key.DeviceId,
-                    device?.DisplayName ?? pair.Key.DeviceId,
-                    activeOutputRoutes.ContainsKey(pair.Key));
-            })
+        return localAudioRoutingCoordinator.GetRoutes(channelId)
+            .Select(route => new ApplicationOutputRouteInfo(
+                route.DeviceId,
+                route.DeviceName,
+                route.IsActive))
             .OrderBy(route => route.DeviceName, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
-    }
-
-    private async Task RebuildAdditionalOutputsAsync()
-    {
-        await additionalOutputsGate.WaitAsync();
-        try
-        {
-            string? primaryDeviceId = SelectedPlaybackDevice?.Id;
-        HashSet<string> availableDeviceIds = PlaybackDevices
-            .Select(device => device.Id)
-            .ToHashSet(StringComparer.Ordinal);
-        foreach ((OutputRouteKey key, SecondaryPlaybackRoute route) in activeOutputRoutes.ToArray())
-        {
-            if (!configuredOutputRoutes.ContainsKey(key) ||
-                !availableDeviceIds.Contains(key.DeviceId) ||
-                string.Equals(key.DeviceId, primaryDeviceId, StringComparison.Ordinal))
-            {
-                if (activeOutputRoutes.TryRemove(key, out _))
-                {
-                    await route.DisposeAsync();
-                }
-            }
-        }
-
-        foreach ((OutputRouteKey key, ListenSphere.Configuration.AudioOutputRouteSettings _) in
-                 configuredOutputRoutes.ToArray())
-        {
-            if (string.Equals(key.DeviceId, primaryDeviceId, StringComparison.Ordinal))
-            {
-                continue;
-            }
-            IAudioDevice? device = PlaybackDevices.FirstOrDefault(
-                item => string.Equals(item.Id, key.DeviceId, StringComparison.Ordinal));
-            if (device is not null)
-            {
-                await EnsureSecondaryOutputRouteAsync(key, device);
-            }
-        }
-
-            AdditionalOutputs.Clear();
-            foreach (IAudioDevice device in PlaybackDevices.Where(device =>
-                         !string.Equals(device.Id, primaryDeviceId, StringComparison.Ordinal)))
-            {
-            float endpointVolume = 100;
-            bool endpointMuted = false;
-            try
-            {
-                endpointVolume = await outputVolume.GetVolumeAsync(
-                    device.Id,
-                    CancellationToken.None) * 100;
-                endpointMuted = await outputVolume.GetMuteAsync(
-                    device.Id,
-                    CancellationToken.None);
-            }
-            catch (Exception exception)
-            {
-                Log.Warning(exception, "Failed to read output endpoint state for {DeviceId}", device.Id);
-            }
-
-            var target = new AdditionalOutputDeviceItemViewModel(
-                device.Id,
-                device.DisplayName,
-                endpointVolume,
-                endpointMuted,
-                QueueOutputDeviceVolumeChange,
-                SetOutputDeviceMute);
-            foreach ((OutputRouteKey key, ListenSphere.Configuration.AudioOutputRouteSettings settings) in
-                     configuredOutputRoutes.Where(pair =>
-                         string.Equals(pair.Key.DeviceId, device.Id, StringComparison.Ordinal)))
-            {
-                string sourceName = RemoteChannels.FirstOrDefault(channel =>
-                    channel.ChannelId == key.ChannelId)?.DisplayName ??
-                    localApplicationSources.GetValueOrDefault(key.ChannelId)?.DisplayName ??
-                    settings.ChannelName ??
-                    "已保存的音源";
-                target.Routes.Add(new AdditionalOutputRouteItemViewModel(
-                    key.ChannelId,
-                    device.Id,
-                    sourceName,
-                    activeOutputRoutes.ContainsKey(key),
-                    RemoveSecondaryOutputRouteAsync));
-            }
-            target.RefreshSummary();
-                AdditionalOutputs.Add(target);
-            }
-        }
-        finally
-        {
-            additionalOutputsGate.Release();
-        }
-    }
-
-    private async Task EnsureSecondaryOutputRouteAsync(OutputRouteKey key, IAudioDevice device)
-    {
-        if (activeOutputRoutes.ContainsKey(key))
-        {
-            return;
-        }
-
-        var sink = new WasapiPlaybackSink(
-            device.Id,
-            GetPlaybackProfile(device));
-        var route = new SecondaryPlaybackRoute(sink);
-        try
-        {
-            await sink.StartAsync(CancellationToken.None);
-            if (!activeOutputRoutes.TryAdd(key, route))
-            {
-                await route.DisposeAsync();
-            }
-        }
-        catch (Exception exception)
-        {
-            await route.DisposeAsync();
-            Log.Warning(
-                exception,
-                "Failed to start secondary output {DeviceId} for channel {ChannelId}",
-                device.Id,
-                key.ChannelId);
-            AudioErrorText = $"附加输出“{device.DisplayName}”暂不可用：{exception.Message}";
-        }
-    }
-
-    private async Task EnsureLocalApplicationCaptureAsync(Guid channelId)
-    {
-        if (activeLocalApplicationCaptures.ContainsKey(channelId) ||
-            !localApplicationSources.TryGetValue(
-                channelId,
-                out LocalApplicationSource? source))
-        {
-            return;
-        }
-
-        WasapiProcessLoopbackCaptureSource capture =
-            processCaptureSourceFactory.Create(source.ProcessId);
-        if (!activeLocalApplicationCaptures.TryAdd(channelId, capture))
-        {
-            await capture.DisposeAsync();
-            return;
-        }
-
-        try
-        {
-            await capture.StartAsync(
-                new LocalApplicationOutputFrameSink(this, channelId),
-                audioLifetime.Token);
-        }
-        catch (Exception exception)
-        {
-            activeLocalApplicationCaptures.TryRemove(channelId, out _);
-            await capture.DisposeAsync();
-            Log.Warning(
-                exception,
-                "Failed to start process loopback for local application {ProcessId}",
-                source.ProcessId);
-            AudioErrorText = $"无法捕获本机应用“{source.DisplayName}”：{exception.Message}";
-        }
-    }
-
-    private async Task RestartLocalApplicationCaptureAsync(Guid channelId)
-    {
-        if (activeLocalApplicationCaptures.TryRemove(
-                channelId,
-                out WasapiProcessLoopbackCaptureSource? capture))
-        {
-            await capture.DisposeAsync();
-        }
-
-        if (configuredOutputRoutes.Keys.Any(key => key.ChannelId == channelId))
-        {
-            await EnsureLocalApplicationCaptureAsync(channelId);
-        }
     }
 
     private async ValueTask WriteSecondaryOutputRoutesAsync(
@@ -1874,44 +1431,11 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             return;
         }
 
-        await WriteOutputRoutesByChannelIdAsync(
+        await localAudioRoutingCoordinator.WriteAsync(
             channel.ChannelId,
             pcm,
             timestamp,
             cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask WriteOutputRoutesByChannelIdAsync(
-        Guid channelId,
-        byte[] pcm,
-        ulong timestamp,
-        CancellationToken cancellationToken)
-    {
-
-        foreach ((OutputRouteKey key, SecondaryPlaybackRoute route) in activeOutputRoutes.ToArray())
-        {
-            if (key.ChannelId != channelId)
-            {
-                continue;
-            }
-            try
-            {
-                await route.WriteAsync(pcm, timestamp, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
-            {
-                if (activeOutputRoutes.TryRemove(key, out SecondaryPlaybackRoute? failed))
-                {
-                    await failed.DisposeAsync().ConfigureAwait(false);
-                }
-                Log.Warning(exception, "Secondary output write failed for {DeviceId}", key.DeviceId);
-                _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                {
-                    AudioErrorText = $"附加输出播放失败，刷新设备后将尝试恢复：{exception.Message}";
-                    _ = RebuildAdditionalOutputsAsync();
-                });
-            }
-        }
     }
 
     private async ValueTask WriteMicrophoneOutputAsync(
@@ -1924,536 +1448,23 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         {
             return;
         }
-
-        await WriteMicrophoneOutputFrameAsync(
+        await microphoneHubCoordinator.WriteOutputAsync(
             channel.ChannelId,
             pcm,
             timestamp,
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask WriteMicrophoneOutputFrameAsync(
-        Guid sourceId,
-        byte[] pcm,
-        ulong timestamp,
-        CancellationToken cancellationToken)
-    {
-        IAudioDevice? device = SelectedMicrophoneOutputDevice;
-        if (!MicrophoneOutputEnabled)
-        {
-            return;
-        }
-
-        ObserveMicrophonePeak(sourceId, pcm);
-        if (device is null)
-        {
-            return;
-        }
-
-        if (!activeMicrophoneRoutes.TryGetValue(sourceId, out SecondaryPlaybackRoute? route))
-        {
-            var sink = new WasapiPlaybackSink(device.Id, GetPlaybackProfile(device));
-            var candidate = new SecondaryPlaybackRoute(sink);
-            try
-            {
-                await sink.StartAsync(cancellationToken).ConfigureAwait(false);
-                if (!activeMicrophoneRoutes.TryAdd(sourceId, candidate))
-                {
-                    await candidate.DisposeAsync().ConfigureAwait(false);
-                }
-                route = activeMicrophoneRoutes.GetValueOrDefault(sourceId);
-            }
-            catch (Exception exception)
-            {
-                await candidate.DisposeAsync().ConfigureAwait(false);
-                Log.Warning(exception, "Failed to start virtual microphone output {DeviceId}", device.Id);
-                _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                    AudioErrorText = $"麦克风输出“{device.DisplayName}”暂不可用：{exception.Message}");
-                return;
-            }
-        }
-
-        if (route is null)
-        {
-            return;
-        }
-
-        try
-        {
-            float gain = MicrophoneOutputMuted ? 0f : MicrophoneOutputVolumePercent / 100f;
-            await route.WriteAsync(pcm, timestamp, cancellationToken, gain).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            if (activeMicrophoneRoutes.TryRemove(sourceId, out SecondaryPlaybackRoute? failed))
-            {
-                await failed.DisposeAsync().ConfigureAwait(false);
-            }
-            Log.Warning(exception, "Virtual microphone output write failed");
-            _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                AudioErrorText = $"麦克风输出中断，刷新设备后可恢复：{exception.Message}");
-        }
-    }
-
-    private void ObserveMicrophonePeak(Guid sourceId, byte[] pcm)
-    {
-        float peak = AudioLevelCalculator.Calculate(
-            MemoryMarshal.Cast<byte, float>(pcm)).Peak * 100;
-        long now = Environment.TickCount64;
-        microphonePeaks[sourceId] = new MicrophonePeakState(peak, now);
-        long previousPublishAt = Interlocked.Read(ref lastMicrophonePeakPublishAt);
-        if (now - previousPublishAt < 33 ||
-            Interlocked.CompareExchange(ref lastMicrophonePeakPublishAt, now, previousPublishAt) !=
-            previousPublishAt)
-        {
-            return;
-        }
-
-        float aggregate = microphonePeaks
-            .Where(pair => now - pair.Value.ObservedAtMilliseconds <= 500)
-            .Select(pair => pair.Value.PeakPercent)
-            .DefaultIfEmpty(0)
-            .Max();
-        float computerPeak = microphonePeaks.TryGetValue(
-                ComputerMicrophoneChannelId,
-                out MicrophonePeakState computerState) &&
-            now - computerState.ObservedAtMilliseconds <= 500
-                ? computerState.PeakPercent
-                : 0;
-        _ = Application.Current.Dispatcher.BeginInvoke(() =>
-        {
-            MicrophoneHubPeakPercent = aggregate;
-            ComputerMicrophonePeakPercent = computerPeak;
-        });
-    }
-
-    private async Task ResetMicrophoneOutputRoutesAsync()
-    {
-        foreach ((Guid channelId, SecondaryPlaybackRoute route) in activeMicrophoneRoutes.ToArray())
-        {
-            if (activeMicrophoneRoutes.TryRemove(channelId, out _))
-            {
-                await route.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-    }
-
-    private async Task ApplyMicrophoneOutputEnabledAsync(bool enabled)
-    {
-        if (enabled)
-        {
-            await EnsureComputerMicrophoneCaptureAsync();
-            return;
-        }
-
-        await StopComputerMicrophoneCaptureAsync();
-        await ResetMicrophoneOutputRoutesAsync();
-        await ResetMicrophoneMonitoringRoutesAsync();
-    }
-
-    private async Task RestartComputerMicrophoneCaptureAsync()
-    {
-        await StopComputerMicrophoneCaptureAsync();
-        if (MicrophoneOutputEnabled)
-        {
-            await EnsureComputerMicrophoneCaptureAsync();
-        }
-    }
-
-    private async Task ChangeDefaultComputerMicrophoneAsync(
-        IAudioDevice? device,
-        IAudioDevice? previous)
-    {
-        if (device is null)
-        {
-            await RestartComputerMicrophoneCaptureAsync();
-            AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-
-        try
-        {
-            await audioDeviceManager.SetDefaultRecordingDeviceAsync(
-                device.Id,
-                CancellationToken.None);
-            await RestartComputerMicrophoneCaptureAsync();
-            AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
-            AudioStatus = $"Windows 默认麦克风已切换为 {device.DisplayName}。";
-        }
-        catch (Exception exception)
-        {
-            Log.Warning(
-                exception,
-                "Failed to set Windows default recording endpoint {DeviceId}",
-                device.Id);
-            applyingSettings = true;
-            SelectedComputerMicrophoneDevice = previous;
-            applyingSettings = false;
-            await RestartComputerMicrophoneCaptureAsync();
-            AudioErrorText = $"无法修改 Windows 默认麦克风：{exception.Message}";
-        }
-    }
-
-    private async Task EnsureComputerMicrophoneCaptureAsync()
-    {
-        IAudioDevice? device = SelectedComputerMicrophoneDevice;
-        if (!MicrophoneOutputEnabled || device is null)
-        {
-            return;
-        }
-
-        await computerMicrophoneGate.WaitAsync();
-        try
-        {
-            if (computerMicrophoneCapture is not null)
-            {
-                return;
-            }
-
-            WasapiLoopbackCaptureSource capture =
-                recordingCaptureSourceFactory.Create(device.Id);
-            try
-            {
-                await capture.StartAsync(
-                    new ComputerMicrophoneFrameSink(this),
-                    audioLifetime.Token);
-                computerMicrophoneCapture = capture;
-            }
-            catch (Exception exception)
-            {
-                await capture.DisposeAsync();
-                Log.Warning(exception, "Failed to capture computer microphone {DeviceId}", device.Id);
-                AudioErrorText = $"电脑麦克风“{device.DisplayName}”无法启动：{exception.Message}";
-            }
-        }
-        finally
-        {
-            computerMicrophoneGate.Release();
-        }
-    }
-
-    private async Task StopComputerMicrophoneCaptureAsync()
-    {
-        WasapiLoopbackCaptureSource? capture;
-        await computerMicrophoneGate.WaitAsync();
-        try
-        {
-            capture = computerMicrophoneCapture;
-            computerMicrophoneCapture = null;
-        }
-        finally
-        {
-            computerMicrophoneGate.Release();
-        }
-
-        if (capture is not null)
-        {
-            await capture.DisposeAsync();
-        }
-
-        RemoveMicrophonePeak(ComputerMicrophoneChannelId);
-    }
-
-    private async ValueTask WriteMicrophoneMonitoringAsync(
+    private ValueTask WriteMicrophoneMonitoringAsync(
         RemoteChannelItemViewModel channel,
         byte[] pcm,
         ulong timestamp,
-        CancellationToken cancellationToken)
-    {
-        await WriteMicrophoneMonitoringFrameAsync(
+        CancellationToken cancellationToken) =>
+        microphoneHubCoordinator.WriteMonitoringAsync(
             channel.ChannelId,
             pcm,
             timestamp,
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask WriteMicrophoneMonitoringFrameAsync(
-        Guid sourceId,
-        byte[] pcm,
-        ulong timestamp,
-        CancellationToken cancellationToken)
-    {
-        IAudioDevice? device = SelectedMicrophoneMonitoringDevice;
-        if (!MicrophoneOutputEnabled || !MicrophoneMonitoringEnabled || device is null)
-        {
-            return;
-        }
-
-        if (!activeMicrophoneMonitoringRoutes.TryGetValue(
-                sourceId,
-                out SecondaryPlaybackRoute? route))
-        {
-            var sink = new WasapiPlaybackSink(device.Id, GetPlaybackProfile(device));
-            var candidate = new SecondaryPlaybackRoute(sink);
-            try
-            {
-                await sink.StartAsync(cancellationToken).ConfigureAwait(false);
-                if (!activeMicrophoneMonitoringRoutes.TryAdd(sourceId, candidate))
-                {
-                    await candidate.DisposeAsync().ConfigureAwait(false);
-                }
-                route = activeMicrophoneMonitoringRoutes.GetValueOrDefault(sourceId);
-            }
-            catch (Exception exception)
-            {
-                await candidate.DisposeAsync().ConfigureAwait(false);
-                Log.Warning(exception, "Failed to start microphone monitoring output {DeviceId}", device.Id);
-                _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                    AudioErrorText = $"麦克风监听设备“{device.DisplayName}”暂不可用：{exception.Message}");
-                return;
-            }
-        }
-
-        if (route is null)
-        {
-            return;
-        }
-
-        try
-        {
-            float gain = MicrophoneOutputMuted ? 0f : MicrophoneOutputVolumePercent / 100f;
-            await route.WriteAsync(pcm, timestamp, cancellationToken, gain).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            if (activeMicrophoneMonitoringRoutes.TryRemove(
-                    sourceId,
-                    out SecondaryPlaybackRoute? failed))
-            {
-                await failed.DisposeAsync().ConfigureAwait(false);
-            }
-            Log.Warning(exception, "Microphone monitoring output write failed");
-            _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                AudioErrorText = $"麦克风监听中断，刷新设备后可恢复：{exception.Message}");
-        }
-    }
-
-    private async Task ResetMicrophoneMonitoringRoutesAsync()
-    {
-        foreach ((Guid channelId, SecondaryPlaybackRoute route) in
-                 activeMicrophoneMonitoringRoutes.ToArray())
-        {
-            if (activeMicrophoneMonitoringRoutes.TryRemove(channelId, out _))
-            {
-                await route.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-    }
-
-    private async Task RemoveMicrophoneOutputRouteAsync(Guid channelId)
-    {
-        if (activeMicrophoneRoutes.TryRemove(channelId, out SecondaryPlaybackRoute? route))
-        {
-            await route.DisposeAsync().ConfigureAwait(false);
-        }
-
-        RemoveMicrophonePeak(channelId);
-    }
-
-    private void RemoveMicrophonePeak(Guid sourceId)
-    {
-        microphonePeaks.TryRemove(sourceId, out _);
-        long now = Environment.TickCount64;
-        float aggregate = microphonePeaks
-            .Where(pair => now - pair.Value.ObservedAtMilliseconds <= 500)
-            .Select(pair => pair.Value.PeakPercent)
-            .DefaultIfEmpty(0)
-            .Max();
-        float computerPeak = microphonePeaks.TryGetValue(
-                ComputerMicrophoneChannelId,
-                out MicrophonePeakState computerState) &&
-            now - computerState.ObservedAtMilliseconds <= 500
-                ? computerState.PeakPercent
-                : 0;
-        _ = Application.Current.Dispatcher.BeginInvoke(() =>
-        {
-            MicrophoneHubPeakPercent = aggregate;
-            ComputerMicrophonePeakPercent = computerPeak;
-        });
-    }
-
-    private async Task RemoveMicrophoneMonitoringRouteAsync(Guid channelId)
-    {
-        if (activeMicrophoneMonitoringRoutes.TryRemove(
-                channelId,
-                out SecondaryPlaybackRoute? route))
-        {
-            await route.DisposeAsync().ConfigureAwait(false);
-        }
-    }
-
-    private async Task EnsureLocalOutputCaptureAsync()
-    {
-        await localCaptureGate.WaitAsync();
-        try
-        {
-            bool shouldCapture = SelectedPlaybackDevice is not null &&
-                configuredOutputRoutes.Keys.Any(key => key.ChannelId == LocalSoundChannelId);
-            string? desiredDeviceId = shouldCapture ? SelectedPlaybackDevice!.Id : null;
-            if (localCaptureSource is not null &&
-                string.Equals(localCaptureDeviceId, desiredDeviceId, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            if (localCaptureSource is not null)
-            {
-                await localCaptureSource.DisposeAsync();
-                localCaptureSource = null;
-                localCaptureDeviceId = null;
-            }
-            if (desiredDeviceId is null)
-            {
-                return;
-            }
-
-            WasapiLoopbackCaptureSource source = captureSourceFactory.Create(desiredDeviceId);
-            source.CaptureStopped += OnLocalOutputCaptureStopped;
-            try
-            {
-                await source.StartAsync(new LocalOutputFrameSink(this), audioLifetime.Token);
-                localCaptureSource = source;
-                localCaptureDeviceId = desiredDeviceId;
-            }
-            catch
-            {
-                source.CaptureStopped -= OnLocalOutputCaptureStopped;
-                await source.DisposeAsync();
-                throw;
-            }
-        }
-        catch (Exception exception)
-        {
-            AudioErrorText = $"无法转发本地声音：{exception.Message}";
-            Log.Warning(exception, "Failed to start local loopback output routing");
-        }
-        finally
-        {
-            localCaptureGate.Release();
-        }
-    }
-
-    private void OnLocalOutputCaptureStopped(object? sender, WasapiCaptureStoppedEventArgs args)
-    {
-        if (args.Exception is not null)
-        {
-            _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                AudioErrorText = $"本地声音转发已停止：{args.Exception.Message}");
-        }
-    }
-
-    private void OnDeviceChanged(object? sender, WindowsDeviceChange change)
-    {
-        diagnostics.Record(
-            DiagnosticSeverity.Information,
-            "windows.audio-device.changed",
-            new Dictionary<string, object?> { ["change"] = change.ToString() });
-        deviceChangeDebounce?.Cancel();
-        deviceChangeDebounce?.Dispose();
-        deviceChangeDebounce = new CancellationTokenSource();
-        _ = RecoverPlaybackAfterDeviceChangeAsync(change, deviceChangeDebounce.Token);
-    }
-
-    private async Task RecoverPlaybackAfterDeviceChangeAsync(
-        WindowsDeviceChange change,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await Task.Delay(600, cancellationToken);
-            await Application.Current.Dispatcher.InvokeAsync(() =>
-            {
-                AudioStatus = $"检测到音频设备{GetDeviceChangeText(change)}，正在恢复播放…";
-            });
-            Task refresh = await Application.Current.Dispatcher.InvokeAsync(
-                () => RefreshOutputsAsync(SelectedPlaybackDevice?.Id));
-            await refresh;
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return;
-        }
-        catch (Exception exception)
-        {
-            Log.Error(exception, "Automatic playback device recovery failed");
-            _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                AudioErrorText = $"播放设备自动恢复失败：{exception.Message}");
-        }
-    }
-
-    private void OnPlaybackStopped(object? sender, WasapiPlaybackStoppedEventArgs args)
-    {
-        diagnostics.Record(
-            args.Exception is null ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
-            "playback.unexpected-stop",
-            args.Exception is null
-                ? null
-                : new Dictionary<string, object?>
-                {
-                    ["exceptionType"] = args.Exception.GetType().Name
-                });
-        OnDeviceChanged(this, WindowsDeviceChange.StateChanged);
-    }
-
-    private void UpdateDiagnosticSnapshot(
-        UdpAudioReceiverStatistics network,
-        AudioPlaybackStatistics audio,
-        RemoteMixerStatistics mixer,
-        IReadOnlyList<BluetoothAudioSessionStatistics>? bluetooth = null)
-    {
-        BluetoothAudioSessionStatistics[] bluetoothSessions = bluetooth?.ToArray() ?? [];
-        diagnostics.UpdateRuntimeSnapshot(new DiagnosticRuntimeSnapshot(
-            DateTimeOffset.UtcNow,
-            typeof(ControllerNetworkViewModel).Assembly.GetName().Version?.ToString() ?? "unknown",
-            RuntimeInformation.OSDescription,
-            RuntimeInformation.ProcessArchitecture.ToString(),
-            Environment.TickCount64 / 1000,
-            network.DatagramsReceived,
-            network.InvalidDatagrams,
-            network.AuthenticationFailures,
-            network.ConcealmentFrames,
-            network.EstimatedLostDatagrams,
-            network.LateDatagrams,
-            network.OutputOverflows,
-            network.OutputQueueDepth,
-            network.ActiveSessions,
-            network.JitterBufferedFrames,
-            network.AdaptiveTargetMilliseconds,
-            network.EstimatedJitterMilliseconds,
-            bluetoothSessions.Sum(session => session.EncodedFrames),
-            bluetoothSessions.Sum(session => session.DecodedFrames),
-            bluetoothSessions.Sum(session => session.TimestampGaps),
-            bluetoothSessions.Sum(session => session.QueueDrops),
-            bluetoothSessions.Sum(session => session.DecodeFailures),
-            bluetoothSessions.Sum(session => session.QueueDepth),
-            mixer.MixedFrames,
-            mixer.StreamUnderflows,
-            mixer.StreamOverflows,
-            mixer.ClippedSamples,
-            audio.FramesWritten,
-            audio.BufferUnderruns,
-            audio.BufferOverflows,
-            audio.DriftCorrections,
-            audio.BufferedMilliseconds,
-            audio.EstimatedClockDriftPpm));
-    }
-
-    private static string FormatBluetoothAudioStatus(
-        IReadOnlyList<BluetoothAudioSessionStatistics> sessions)
-    {
-        if (sessions.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        long drops = sessions.Sum(session => session.QueueDrops);
-        long gaps = sessions.Sum(session => session.TimestampGaps);
-        int depth = sessions.Sum(session => session.QueueDepth);
-        string formats = string.Join(
-            "/",
-            sessions.Select(session => session.Codec.ToString()).Distinct(StringComparer.Ordinal));
-        return $" · 蓝牙 {formats} · 队列 {depth} · 缺口 {gaps} · 丢帧 {drops}";
-    }
+            cancellationToken);
 
     private void UpdateBluetoothDuplexStatus(
         IReadOnlyList<BluetoothAudioSessionStatistics> sessions)
@@ -2471,279 +1482,29 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             : "双蓝牙链路已启用抗掉帧缓冲。";
     }
 
-    private static string GetDeviceChangeText(WindowsDeviceChange change) => change switch
-    {
-        WindowsDeviceChange.Added => "接入",
-        WindowsDeviceChange.Removed => "移除",
-        WindowsDeviceChange.DefaultChanged => "默认项变化",
-        _ => "状态变化"
-    };
-
-    private static WasapiPlaybackProfile GetPlaybackProfile(IAudioDevice device) =>
-        device is WindowsAudioDevice { IsBluetooth: true }
-            ? WasapiPlaybackProfile.BluetoothResilient
-            : WasapiPlaybackProfile.Standard;
-
-    private async Task DisposePlaybackSafelyAsync(IAudioPlaybackSink sink)
-    {
-        if (sink is WasapiPlaybackSink wasapiSink)
-        {
-            wasapiSink.PlaybackStopped -= OnPlaybackStopped;
-        }
-
-        try
-        {
-            await sink.StopAsync(CancellationToken.None);
-        }
-        catch (Exception exception)
-        {
-            Log.Warning(exception, "Playback stop failed during recovery");
-        }
-
-        try
-        {
-            await sink.DisposeAsync();
-        }
-        catch (Exception exception)
-        {
-            Log.Warning(exception, "Playback dispose failed during recovery");
-        }
-    }
-
-    private void QueueMasterVolumeChange()
-    {
-        volumeDebounce?.Cancel();
-        volumeDebounce?.Dispose();
-        foreach (CancellationTokenSource cancellation in outputVolumeDebounces.Values)
-        {
-            cancellation.Cancel();
-            cancellation.Dispose();
-        }
-        outputVolumeDebounces.Clear();
-        volumeDebounce = new CancellationTokenSource();
-        _ = SetMasterVolumeAfterDelayAsync(volumeDebounce);
-    }
-
-    private async Task SetMasterVolumeAfterDelayAsync(CancellationTokenSource cancellation)
-    {
-        try
-        {
-            await Task.Delay(120, cancellation.Token);
-            await SetMasterVolumeAsync(cancellation.Token);
-        }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-        {
-            return;
-        }
-        catch (Exception exception)
-        {
-            _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                AudioErrorText = $"设置主音量失败：{exception.Message}");
-        }
-    }
-
-    private async Task SetMasterVolumeAsync(CancellationToken cancellationToken = default)
-    {
-        if (SelectedPlaybackDevice is not null)
-        {
-            await outputVolume.SetVolumeAsync(
-                SelectedPlaybackDevice.Id,
-                MasterVolumePercent / 100,
-                cancellationToken);
-        }
-    }
-
-    private async Task SetSystemMuteAsync(bool isMuted)
-    {
-        if (SelectedPlaybackDevice is null) return;
-        try
-        {
-            await outputVolume.SetMuteAsync(
-                SelectedPlaybackDevice.Id,
-                isMuted,
-                CancellationToken.None);
-        }
-        catch (Exception exception)
-        {
-            AudioErrorText = $"设置系统静音失败：{exception.Message}";
-            Log.Warning(exception, "Failed to set output endpoint mute");
-        }
-    }
-
-    private void QueueOutputDeviceVolumeChange(string deviceId, float volume)
-    {
-        if (outputVolumeDebounces.TryRemove(deviceId, out CancellationTokenSource? previous))
-        {
-            previous.Cancel();
-            previous.Dispose();
-        }
-
-        var cancellation = new CancellationTokenSource();
-        outputVolumeDebounces[deviceId] = cancellation;
-        _ = SetOutputDeviceVolumeAfterDelayAsync(deviceId, volume, cancellation);
-    }
-
-    private async Task SetOutputDeviceVolumeAfterDelayAsync(
-        string deviceId,
-        float volume,
-        CancellationTokenSource cancellation)
-    {
-        try
-        {
-            await Task.Delay(120, cancellation.Token);
-            await outputVolume.SetVolumeAsync(deviceId, volume, cancellation.Token);
-        }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-        {
-            return;
-        }
-        catch (Exception exception)
-        {
-            _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                AudioErrorText = $"设置输出设备音量失败：{exception.Message}");
-        }
-        finally
-        {
-            if (outputVolumeDebounces.TryGetValue(deviceId, out CancellationTokenSource? current) &&
-                ReferenceEquals(current, cancellation))
-            {
-                outputVolumeDebounces.TryRemove(deviceId, out _);
-            }
-
-            cancellation.Dispose();
-        }
-    }
-
-    private void SetOutputDeviceMute(string deviceId, bool isMuted) =>
-        _ = SetOutputDeviceMuteAsync(deviceId, isMuted);
-
-    private async Task SetOutputDeviceMuteAsync(string deviceId, bool isMuted)
-    {
-        try
-        {
-            await outputVolume.SetMuteAsync(deviceId, isMuted, CancellationToken.None);
-        }
-        catch (Exception exception)
-        {
-            AudioErrorText = $"设置输出设备静音失败：{exception.Message}";
-            Log.Warning(exception, "Failed to set output endpoint mute for {DeviceId}", deviceId);
-        }
-    }
-
-    private Task GenerateCodeAsync()
-    {
-        PairingCode code = pairingCodes.Generate();
-        PairingCode = $"{code.Value[..3]} {code.Value[3..]}";
-        pairingCodeExpiresAt = code.ExpiresAt;
-        PairingCodeActionText = "重新生成";
-        UpdatePairingCodeCountdown();
-        return Task.CompletedTask;
-    }
-
-    private async Task MonitorPairingCodeAsync(CancellationToken cancellationToken)
-    {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-        try
-        {
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
-            {
-                await Application.Current.Dispatcher.InvokeAsync(UpdatePairingCodeCountdown);
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // Normal application shutdown.
-        }
-    }
-
-    private void UpdatePairingCodeCountdown()
-    {
-        if (pairingCodeExpiresAt is not { } expiresAt)
-        {
-            return;
-        }
-
-        TimeSpan remaining = expiresAt - DateTimeOffset.UtcNow;
-        if (remaining <= TimeSpan.Zero)
-        {
-            ClearPairingCode("配对码已过期，请重新生成。");
-            return;
-        }
-
-        if (!pairingCodes.HasActiveCode)
-        {
-            PairingHint = "配对码已验证，正在建立设备信任…";
-            return;
-        }
-
-        int remainingSeconds = Math.Max(1, (int)Math.Ceiling(remaining.TotalSeconds));
-        PairingHint =
-            $"剩余 {remainingSeconds / 60:00}:{remainingSeconds % 60:00} · 单次使用，仅首次配对需要。";
-    }
-
-    private void CompletePairingCodeIfConsumed(string successMessage)
-    {
-        if (pairingCodeExpiresAt is not { } expiresAt || pairingCodes.HasActiveCode)
-        {
-            return;
-        }
-
-        ClearPairingCode(
-            DateTimeOffset.UtcNow >= expiresAt
-                ? "配对码已过期，请重新生成。"
-                : successMessage);
-    }
-
-    private void ClearPairingCode(string hint)
-    {
-        pairingCodes.Cancel();
-        pairingCodeExpiresAt = null;
-        PairingCode = "------";
-        PairingCodeActionText = "生成配对码";
-        PairingHint = hint;
-    }
-
     private async Task RevokeDeviceAsync(Guid deviceId)
     {
-        TrustedDevice? trusted = TrustedDevices.FirstOrDefault(
-            device => device.DeviceId == deviceId);
         RemoteChannelItemViewModel? channel = RemoteChannels.FirstOrDefault(
             item => item.ParentDeviceId == deviceId && !item.IsApplicationSource);
-        if (trusted is null && channel is null)
+        RemoteDeviceMutation? mutation = await remoteDeviceCoordinator.RevokeAsync(
+            deviceId,
+            channel?.DisplayName,
+            CancellationToken.None);
+        if (mutation is null)
         {
             return;
         }
 
-        string name = trusted?.DisplayName ?? channel!.DisplayName;
-        if (!await RequestDeleteConfirmationAsync(name))
+        NetworkStatus = $"已删除设备：{mutation.DisplayName}；再次连接需要重新配对。";
+        RemoteChannelItemViewModel[] removingChannels = RemoteChannels
+            .Where(item => item.ParentDeviceId == deviceId).ToArray();
+        await localAudioRoutingCoordinator.RemoveChannelsAsync(
+            removingChannels.Select(item => item.ChannelId));
+        foreach (RemoteChannelItemViewModel removing in removingChannels)
         {
-            return;
-        }
-
-        await bluetoothHost.DisconnectDeviceAsync(deviceId);
-        await usbHost.DisconnectDeviceAsync(deviceId);
-        await server.RevokeAsync(deviceId, CancellationToken.None);
-        NetworkStatus = $"已删除设备：{name}；再次连接需要重新配对。";
-        foreach (RemoteChannelItemViewModel removing in RemoteChannels
-                     .Where(item => item.ParentDeviceId == deviceId).ToArray())
-        {
-            foreach (OutputRouteKey routeKey in configuredOutputRoutes.Keys
-                         .Where(key => key.ChannelId == removing.ChannelId).ToArray())
-            {
-                configuredOutputRoutes.TryRemove(routeKey, out _);
-                if (activeOutputRoutes.TryRemove(routeKey, out SecondaryPlaybackRoute? outputRoute))
-                {
-                    await outputRoute.DisposeAsync();
-                }
-            }
             if (removing.SessionId is Guid sessionId)
             {
-                channelsBySession.TryRemove(sessionId, out _);
-                remoteMixer.RemoveStream(sessionId);
-                equalizersBySession.TryRemove(sessionId, out _);
-                groupEqualizersBySession.TryRemove(sessionId, out _);
-                dynamicsBySession.TryRemove(sessionId, out _);
-                dynamicsResultsBySession.TryRemove(sessionId, out _);
+                RemoveRemoteAudioSession(sessionId);
             }
 
             RemoteChannels.Remove(removing);
@@ -2751,53 +1512,6 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             ActiveRemoteChannels.Remove(removing);
         }
 
-        await RefreshTrustedDevicesAsync();
-        await RebuildAdditionalOutputsAsync();
-        AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private async Task<bool> RequestDeleteConfirmationAsync(string deviceName)
-    {
-        if (deleteConfirmation is not null)
-        {
-            return false;
-        }
-
-        DeleteConfirmationDeviceName = deviceName;
-        deleteConfirmation = new TaskCompletionSource<bool>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        IsDeleteConfirmationVisible = true;
-        return await deleteConfirmation.Task;
-    }
-
-    private Task CompleteDeleteConfirmationAsync(bool confirmed)
-    {
-        TaskCompletionSource<bool>? completion = deleteConfirmation;
-        deleteConfirmation = null;
-        IsDeleteConfirmationVisible = false;
-        DeleteConfirmationDeviceName = string.Empty;
-        completion?.TrySetResult(confirmed);
-        return Task.CompletedTask;
-    }
-
-    private async Task RefreshTrustedDevicesAsync()
-    {
-        IReadOnlyList<TrustedDevice> devices = await trustStore.GetAllAsync(
-            CancellationToken.None);
-        TrustedDevices.Clear();
-        foreach (TrustedDevice device in devices.OrderBy(item => item.DisplayName))
-        {
-            TrustedDevices.Add(device);
-            RemoteChannelItemViewModel channel = EnsureRemoteChannel(
-                device.DeviceId,
-                device.DisplayName,
-                ParseTransport(device.Transport));
-            foreach (string transport in device.ObservedTransports)
-            {
-                channel.RememberTransport(ParseTransport(transport));
-            }
-        }
-        RebuildVisibleChannels();
     }
 
     private RemoteChannelItemViewModel EnsureRemoteChannel(
@@ -3122,15 +1836,46 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void OnGroupBusSettingsChanged() =>
+    private void OnGroupBusSettingsChanged(GroupBusItemViewModel group)
+    {
+        UpdateGroupMixerBus(group);
         AudioSettingsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void UpdateGroupMixerBus(GroupBusItemViewModel group) =>
+        groupMixerCoordinator.UpdateBus(new GroupMixerBusSettings(
+            group.Name,
+            group.EffectiveGain,
+            group.EqualizerGains));
 
     private void RebuildActiveGroupBuses()
     {
+        groupMixerCoordinator.UpdateActiveGroups(
+            ActiveRemoteChannels.Select(channel => channel.SelectedChannelGroup));
+    }
+
+    private void OnGroupMixerSnapshotChanged(
+        object? sender,
+        GroupMixerSnapshot snapshot)
+    {
+        if (Application.Current.Dispatcher.CheckAccess())
+        {
+            ApplyGroupMixerSnapshot(snapshot);
+            return;
+        }
+        _ = Application.Current.Dispatcher.BeginInvoke(
+            () => ApplyGroupMixerSnapshot(snapshot));
+    }
+
+    private void ApplyGroupMixerSnapshot(GroupMixerSnapshot snapshot)
+    {
+        Dictionary<string, int> counts = snapshot.Buses.ToDictionary(
+            bus => bus.Name,
+            bus => bus.ChannelCount,
+            StringComparer.Ordinal);
         foreach (GroupBusItemViewModel group in GroupBuses)
         {
-            group.ChannelCount = ActiveRemoteChannels.Count(channel =>
-                string.Equals(channel.SelectedChannelGroup, group.Name, StringComparison.Ordinal));
+            group.ChannelCount = counts.TryGetValue(group.Name, out int count) ? count : 0;
         }
 
         ActiveGroupBuses.Clear();
@@ -3145,20 +1890,13 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         RemoteChannelItemViewModel? channel =
             RemoteChannels.FirstOrDefault(item =>
                 item.ParentDeviceId == deviceId && !item.IsApplicationSource);
-        await bluetoothHost.DisconnectDeviceAsync(deviceId);
-        await usbHost.DisconnectDeviceAsync(deviceId);
-        await server.DisconnectDeviceAsync(deviceId);
+        await remoteDeviceCoordinator.DisconnectAsync(deviceId, CancellationToken.None);
         foreach (RemoteChannelItemViewModel affected in RemoteChannels.Where(
                      item => item.ParentDeviceId == deviceId).ToArray())
         {
             if (affected.SessionId is Guid sessionId)
             {
-                channelsBySession.TryRemove(sessionId, out _);
-                remoteMixer.RemoveStream(sessionId);
-                equalizersBySession.TryRemove(sessionId, out _);
-                groupEqualizersBySession.TryRemove(sessionId, out _);
-                dynamicsBySession.TryRemove(sessionId, out _);
-                dynamicsResultsBySession.TryRemove(sessionId, out _);
+                RemoveRemoteAudioSession(sessionId);
             }
             affected.ConnectionState = DeviceConnectionState.Offline;
             affected.SessionId = null;
@@ -3213,12 +1951,7 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
                     // once named application streams exist it is only a device placeholder.
                     if (deviceChannel.SessionId is Guid legacySession)
                     {
-                        channelsBySession.TryRemove(legacySession, out _);
-                        remoteMixer.RemoveStream(legacySession);
-                        equalizersBySession.TryRemove(legacySession, out _);
-                        groupEqualizersBySession.TryRemove(legacySession, out _);
-                        dynamicsBySession.TryRemove(legacySession, out _);
-                        dynamicsResultsBySession.TryRemove(legacySession, out _);
+                        RemoveRemoteAudioSession(legacySession);
                         deviceChannel.SessionId = null;
                     }
                     deviceChannel.ConnectionState = DeviceConnectionState.Connected;
@@ -3249,25 +1982,18 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
                 if (args.State == DeviceConnectionState.Streaming && args.AudioSessionId is Guid sessionId)
                 {
                     channel.SessionId = sessionId;
-                    channelsBySession[sessionId] = channel;
-                    remoteMixer.RegisterStream(sessionId);
+                    RegisterRemoteAudioSession(sessionId, channel);
                 }
                 else if (args.State == DeviceConnectionState.Offline)
                 {
                     if (args.AudioSessionId is Guid endedSession)
                     {
-                        channelsBySession.TryRemove(endedSession, out _);
-                        remoteMixer.RemoveStream(endedSession);
-                        equalizersBySession.TryRemove(endedSession, out _);
-                        groupEqualizersBySession.TryRemove(endedSession, out _);
-                        dynamicsBySession.TryRemove(endedSession, out _);
-                        dynamicsResultsBySession.TryRemove(endedSession, out _);
+                        RemoveRemoteAudioSession(endedSession);
                     }
 
                     channel.SessionId = null;
                     channel.PeakPercent = 0;
-                    await RemoveMicrophoneOutputRouteAsync(channel.ChannelId);
-                    await RemoveMicrophoneMonitoringRouteAsync(channel.ChannelId);
+                    await microphoneHubCoordinator.RemoveSourceAsync(channel.ChannelId);
                     if (channel.IsApplicationSource)
                     {
                         RemoveApplicationChannel(channel);
@@ -3283,12 +2009,7 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
                     {
                         if (child.SessionId is Guid childSession)
                         {
-                            channelsBySession.TryRemove(childSession, out _);
-                            remoteMixer.RemoveStream(childSession);
-                            equalizersBySession.TryRemove(childSession, out _);
-                            groupEqualizersBySession.TryRemove(childSession, out _);
-                            dynamicsBySession.TryRemove(childSession, out _);
-                            dynamicsResultsBySession.TryRemove(childSession, out _);
+                            RemoveRemoteAudioSession(childSession);
                         }
                         child.SessionId = null;
                         child.PeakPercent = 0;
@@ -3301,9 +2022,9 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
 
                 if (args.State is DeviceConnectionState.Connected or DeviceConnectionState.Streaming)
                 {
-                    CompletePairingCodeIfConsumed(
+                    remoteDeviceCoordinator.CompletePairingCodeIfConsumed(
                         "设备已建立证书固定信任；后续将自动重连。");
-                    await RefreshTrustedDevicesAsync();
+                    await remoteDeviceCoordinator.RefreshTrustedDevicesAsync();
                 }
             }
             catch (Exception exception)
@@ -3325,16 +2046,27 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         }
     }
 
+    private void RegisterRemoteAudioSession(
+        Guid sessionId,
+        RemoteChannelItemViewModel channel,
+        int preferredStartupFrames = 6)
+    {
+        channelsBySession[sessionId] = channel;
+        remoteAudioCoordinator.RegisterSession(sessionId, preferredStartupFrames);
+    }
+
+    private void RemoveRemoteAudioSession(Guid sessionId)
+    {
+        channelsBySession.TryRemove(sessionId, out _);
+        remoteAudioCoordinator.RemoveSession(sessionId);
+        groupMixerCoordinator.RemoveSession(sessionId);
+    }
+
     private void RemoveApplicationChannel(RemoteChannelItemViewModel channel)
     {
         if (channel.SessionId is Guid sessionId)
         {
-            channelsBySession.TryRemove(sessionId, out _);
-            remoteMixer.RemoveStream(sessionId);
-            equalizersBySession.TryRemove(sessionId, out _);
-            groupEqualizersBySession.TryRemove(sessionId, out _);
-            dynamicsBySession.TryRemove(sessionId, out _);
-            dynamicsResultsBySession.TryRemove(sessionId, out _);
+            RemoveRemoteAudioSession(sessionId);
         }
         RemoteChannels.Remove(channel);
         ActiveRemoteChannels.Remove(channel);
@@ -3376,24 +2108,17 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             if (args.State == DeviceConnectionState.Streaming)
             {
                 channel.SessionId = args.SessionId;
-                channelsBySession[args.SessionId] = channel;
-                remoteMixer.RegisterStream(args.SessionId, preferredStartupFrames: 18);
-                CompletePairingCodeIfConsumed(
+                RegisterRemoteAudioSession(args.SessionId, channel, preferredStartupFrames: 18);
+                remoteDeviceCoordinator.CompletePairingCodeIfConsumed(
                     "蓝牙设备已建立身份信任；后续可直接重连。");
-                await RefreshTrustedDevicesAsync();
+                await remoteDeviceCoordinator.RefreshTrustedDevicesAsync();
             }
             else
             {
-                channelsBySession.TryRemove(args.SessionId, out _);
-                remoteMixer.RemoveStream(args.SessionId);
-                equalizersBySession.TryRemove(args.SessionId, out _);
-                groupEqualizersBySession.TryRemove(args.SessionId, out _);
-                dynamicsBySession.TryRemove(args.SessionId, out _);
-                dynamicsResultsBySession.TryRemove(args.SessionId, out _);
+                RemoveRemoteAudioSession(args.SessionId);
                 channel.SessionId = null;
                 channel.PeakPercent = 0;
-                await RemoveMicrophoneOutputRouteAsync(channel.ChannelId);
-                await RemoveMicrophoneMonitoringRouteAsync(channel.ChannelId);
+                await microphoneHubCoordinator.RemoveSourceAsync(channel.ChannelId);
             }
             RebuildVisibleChannels();
         });
@@ -3446,24 +2171,17 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
             if (args.State == DeviceConnectionState.Streaming)
             {
                 channel.SessionId = args.SessionId;
-                channelsBySession[args.SessionId] = channel;
-                remoteMixer.RegisterStream(args.SessionId, preferredStartupFrames: 6);
-                CompletePairingCodeIfConsumed(
+                RegisterRemoteAudioSession(args.SessionId, channel, preferredStartupFrames: 6);
+                remoteDeviceCoordinator.CompletePairingCodeIfConsumed(
                     "有线设备已建立身份信任；后续插线可直接重连。");
-                await RefreshTrustedDevicesAsync();
+                await remoteDeviceCoordinator.RefreshTrustedDevicesAsync();
             }
             else
             {
-                channelsBySession.TryRemove(args.SessionId, out _);
-                remoteMixer.RemoveStream(args.SessionId);
-                equalizersBySession.TryRemove(args.SessionId, out _);
-                groupEqualizersBySession.TryRemove(args.SessionId, out _);
-                dynamicsBySession.TryRemove(args.SessionId, out _);
-                dynamicsResultsBySession.TryRemove(args.SessionId, out _);
+                RemoveRemoteAudioSession(args.SessionId);
                 channel.SessionId = null;
                 channel.PeakPercent = 0;
-                await RemoveMicrophoneOutputRouteAsync(channel.ChannelId);
-                await RemoveMicrophoneMonitoringRouteAsync(channel.ChannelId);
+                await microphoneHubCoordinator.RemoveSourceAsync(channel.ChannelId);
             }
             RebuildVisibleChannels();
         });
@@ -3498,7 +2216,6 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         }
 
         disposed = true;
-        await CompleteDeleteConfirmationAsync(false);
         server.PeerChanged -= OnPeerChanged;
         bluetoothHost.ProbeReceived -= OnBluetoothProbeReceived;
         bluetoothHost.SessionChanged -= OnBluetoothSessionChanged;
@@ -3506,204 +2223,35 @@ public sealed class ControllerNetworkViewModel : INotifyPropertyChanged, IAsyncD
         usbHost.StatusChanged -= OnUsbStatusChanged;
         usbHost.SessionChanged -= OnUsbSessionChanged;
         usbHost.Faulted -= OnUsbHostFaulted;
-        deviceNotifications.Changed -= OnDeviceChanged;
-        NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged;
-        volumeDebounce?.Cancel();
-        volumeDebounce?.Dispose();
-        deviceChangeDebounce?.Cancel();
-        deviceChangeDebounce?.Dispose();
-        networkChangeDebounce?.Cancel();
-        networkChangeDebounce?.Dispose();
-        await audioLifetime.CancelAsync();
-        if (pairingCodeCountdownLoop is not null)
-        {
-            await pairingCodeCountdownLoop;
-        }
-        publisher?.Dispose();
-        publisher = null;
+        transportCoordinator.SnapshotChanged -= OnTransportSnapshotChanged;
+        remoteDeviceCoordinator.SnapshotChanged -= OnRemoteDeviceSnapshotChanged;
+        audioOutputCoordinator.SnapshotChanged -= OnAudioOutputSnapshotChanged;
+        audioOutputCoordinator.OutputEvent -= OnAudioOutputEvent;
+        localAudioRoutingCoordinator.SnapshotChanged -= OnLocalAudioRoutingSnapshotChanged;
+        localAudioRoutingCoordinator.RoutesChanged -= OnLocalAudioRoutesChanged;
+        microphoneHubCoordinator.SnapshotChanged -= OnMicrophoneHubSnapshotChanged;
+        microphoneHubCoordinator.SettingsChanged -= OnMicrophoneHubSettingsChanged;
+        remoteAudioCoordinator.SnapshotChanged -= OnRemoteAudioSnapshotChanged;
+        remoteAudioCoordinator.MeterChanged -= OnRemoteAudioMeterChanged;
+        groupMixerCoordinator.SnapshotChanged -= OnGroupMixerSnapshotChanged;
+        await remoteAudioCoordinator.DisposeAsync();
+        await groupMixerCoordinator.DisposeAsync();
+        await audioOutputCoordinator.DisposeAsync();
+        await remoteDeviceCoordinator.DisposeAsync();
+        await transportCoordinator.DisposeAsync();
         await server.DisposeAsync();
-        if (audioLoop is not null)
-        {
-            await audioLoop;
-        }
-
-        if (bluetoothAudioLoop is not null)
-        {
-            await bluetoothAudioLoop;
-        }
-
-        if (usbAudioLoop is not null)
-        {
-            await usbAudioLoop;
-        }
-
-        if (bluetoothRecoveryLoop is not null)
-        {
-            try { await bluetoothRecoveryLoop; }
-            catch (OperationCanceledException) { }
-        }
-
-        if (mixerLoop is not null)
-        {
-            await mixerLoop;
-        }
-
-        await localCaptureGate.WaitAsync();
-        try
-        {
-            if (localCaptureSource is not null)
-            {
-                localCaptureSource.CaptureStopped -= OnLocalOutputCaptureStopped;
-                await localCaptureSource.DisposeAsync();
-                localCaptureSource = null;
-                localCaptureDeviceId = null;
-            }
-        }
-        finally
-        {
-            localCaptureGate.Release();
-        }
-
-        foreach ((OutputRouteKey key, SecondaryPlaybackRoute route) in activeOutputRoutes.ToArray())
-        {
-            if (activeOutputRoutes.TryRemove(key, out _))
-            {
-                await route.DisposeAsync();
-            }
-        }
-        foreach ((Guid channelId, WasapiProcessLoopbackCaptureSource capture) in
-                 activeLocalApplicationCaptures.ToArray())
-        {
-            if (activeLocalApplicationCaptures.TryRemove(channelId, out _))
-            {
-                await capture.DisposeAsync();
-            }
-        }
-        await StopComputerMicrophoneCaptureAsync();
-        await ResetMicrophoneOutputRoutesAsync();
-        await ResetMicrophoneMonitoringRoutesAsync();
+        await localAudioRoutingCoordinator.DisposeAsync();
+        await microphoneHubCoordinator.DisposeAsync();
         AdditionalOutputs.Clear();
 
-        await playbackGate.WaitAsync();
-        try
-        {
-            if (playback is not null)
-            {
-                await DisposePlaybackSafelyAsync(playback);
-                playback = null;
-            }
-        }
-        finally
-        {
-            playbackGate.Release();
-        }
-
-        playbackGate.Dispose();
-        localCaptureGate.Dispose();
-        computerMicrophoneGate.Dispose();
-        additionalOutputsGate.Dispose();
         await bluetoothHost.DisposeAsync();
         await usbHost.DisposeAsync();
-        audioLifetime.Dispose();
     }
 
-    private readonly record struct OutputRouteKey(Guid ChannelId, string DeviceId);
-    private readonly record struct MicrophonePeakState(
-        float PeakPercent,
-        long ObservedAtMilliseconds);
     public sealed record ApplicationOutputRouteInfo(
         string DeviceId,
         string DeviceName,
         bool IsActive);
-    private sealed record LocalApplicationSource(
-        int ProcessId,
-        string DisplayName,
-        string IdentityKey);
-
-    private sealed class SecondaryPlaybackRoute(WasapiPlaybackSink sink) : IAsyncDisposable
-    {
-        private readonly MasterSoftLimiter limiter = new();
-
-        public async ValueTask WriteAsync(
-            byte[] pcm,
-            ulong timestamp,
-            CancellationToken cancellationToken,
-            float gain = 1f)
-        {
-            byte[] copy = pcm.ToArray();
-            PcmGainProcessor.Apply(copy, Math.Clamp(gain, 0f, 1f));
-            limiter.Process(copy);
-            await sink.WriteAsync(
-                new AudioFrame(copy, AudioFormat.Default, 480, timestamp),
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            try
-            {
-                await sink.StopAsync(CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception exception)
-            {
-                Log.Debug(exception, "Secondary playback stop failed");
-            }
-            await sink.DisposeAsync().ConfigureAwait(false);
-        }
-    }
-
-    private sealed class LocalOutputFrameSink(ControllerNetworkViewModel owner) : IAudioFrameSink
-    {
-        public async ValueTask WriteAsync(AudioFrame frame, CancellationToken cancellationToken)
-        {
-            byte[] pcm = frame.Data.ToArray();
-            PcmGainProcessor.Apply(
-                pcm,
-                owner.IsLocalSourceMuted ? 0f : owner.LocalSourceVolumePercent / 100f);
-            await owner.WriteOutputRoutesByChannelIdAsync(
-                LocalSoundChannelId,
-                pcm,
-                frame.Timestamp,
-                cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private sealed class LocalApplicationOutputFrameSink(
-        ControllerNetworkViewModel owner,
-        Guid channelId) : IAudioFrameSink
-    {
-        public async ValueTask WriteAsync(AudioFrame frame, CancellationToken cancellationToken)
-        {
-            byte[] pcm = frame.Data.ToArray();
-            PcmGainProcessor.Apply(
-                pcm,
-                owner.IsLocalSourceMuted ? 0f : owner.LocalSourceVolumePercent / 100f);
-            await owner.WriteOutputRoutesByChannelIdAsync(
-                channelId,
-                pcm,
-                frame.Timestamp,
-                cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private sealed class ComputerMicrophoneFrameSink(
-        ControllerNetworkViewModel owner) : IAudioFrameSink
-    {
-        public async ValueTask WriteAsync(AudioFrame frame, CancellationToken cancellationToken)
-        {
-            byte[] pcm = frame.Data.ToArray();
-            await owner.WriteMicrophoneOutputFrameAsync(
-                ComputerMicrophoneChannelId,
-                pcm,
-                frame.Timestamp,
-                cancellationToken).ConfigureAwait(false);
-            await owner.WriteMicrophoneMonitoringFrameAsync(
-                ComputerMicrophoneChannelId,
-                pcm,
-                frame.Timestamp,
-                cancellationToken).ConfigureAwait(false);
-        }
-    }
 
     private bool SetField<T>(
         ref T field,

@@ -1,0 +1,33 @@
+<UserControl x:Class="ListenSphere.Controller.Views.ChannelEqualizerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:ListenSphere.Controller">
+    <StackPanel>
+        <Grid Margin="0,2,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal"><TextBlock FontWeight="SemiBold" Text="十段均衡器" /><TextBlock Margin="8,0,0,0" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Text="-20 dB ～ +20 dB" /></StackPanel><Button Grid.Column="1" Padding="10,4" Command="{Binding ResetEqualizerCommand}" Content="恢复原声" /></Grid>
+        <Border Height="104" Margin="0,0,0,8" Background="#0F151D" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="8">
+            <local:EqualizerCurveControl Gains="{Binding EqualizerCurveGains, Mode=OneWay}" />
+        </Border>
+        <Border Height="245" Padding="10,8" Background="#0F151D" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="8">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq20Db, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq20Db, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq60Db, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq60Db, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Column="2" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq100Db, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq100Db, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Column="3" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq250Db, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq250Db, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Column="4" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq500Db, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq500Db, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Column="5" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq1KDb, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq1KDb, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Column="6" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq2KDb, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq2KDb, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Column="7" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq4KDb, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq4KDb, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Column="8" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq8KDb, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq8KDb, Mode=TwoWay}" /></StackPanel>
+                    <StackPanel Grid.Column="9" HorizontalAlignment="Center"><TextBlock HorizontalAlignment="Center" Text="{Binding Eq20KDb, StringFormat={}{0:+0;-0;0}}" /><Slider Height="175" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq20KDb, Mode=TwoWay}" /></StackPanel>
+                </Grid>
+                <Grid Grid.Row="1" Margin="0,5,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Grid.Column="0" HorizontalAlignment="Center" Text="20Hz" /><TextBlock Grid.Column="1" HorizontalAlignment="Center" Text="60Hz" /><TextBlock Grid.Column="2" HorizontalAlignment="Center" Text="100Hz" /><TextBlock Grid.Column="3" HorizontalAlignment="Center" Text="250Hz" /><TextBlock Grid.Column="4" HorizontalAlignment="Center" Text="500Hz" /><TextBlock Grid.Column="5" HorizontalAlignment="Center" Text="1KHz" /><TextBlock Grid.Column="6" HorizontalAlignment="Center" Text="2KHz" /><TextBlock Grid.Column="7" HorizontalAlignment="Center" Text="4KHz" /><TextBlock Grid.Column="8" HorizontalAlignment="Center" Text="8KHz" /><TextBlock Grid.Column="9" HorizontalAlignment="Center" Text="20KHz" /></Grid>
+            </Grid>
+        </Border>
+        <TextBlock Margin="0,10,0,0" HorizontalAlignment="Center"
+                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="10"
+                   Text="输入 → 前级 → 噪声门 → 压缩器 → 均衡器 → 声道/分组音量 → 声道限幅 → 混音主限幅 → 输出" />
+    </StackPanel>
+</UserControl>

@@ -1,7 +1,14 @@
 using System.Net.NetworkInformation;
+using System.Net.Security;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using ListenSphere.Device;
 using ListenSphere.Network;
 using System.Net;
+using System.Net.Sockets;
+using ListenSphere.Protocol;
+using ListenSphere.Protocol.V1;
 using Xunit;
 
 namespace ListenSphere.Core.Tests;
@@ -219,6 +226,84 @@ public sealed class NetworkControlTests
                 await reloaded.FindAsync(
                     device.DeviceId,
                     TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task TlsControlChannel_AllowsHelloWithoutClientCertificate()
+    {
+        string directory = CreateTemporaryDirectory();
+        string controllerDirectory = Path.Combine(directory, "controller");
+        string senderDirectory = Path.Combine(directory, "sender");
+        using LocalDeviceIdentity controllerIdentity = LocalIdentityStore.LoadOrCreate(
+            controllerDirectory,
+            "Test Controller",
+            DeviceCapabilities.Controller | DeviceCapabilities.AudioReceive);
+        using LocalDeviceIdentity senderIdentity = LocalIdentityStore.LoadOrCreate(
+            senderDirectory,
+            "Test Sender",
+            DeviceCapabilities.AudioSend);
+        var controllerTrust = new JsonTrustedDeviceStore(
+            Path.Combine(controllerDirectory, "trusted-devices.json"));
+        await using var server = new ListenSphereControlServer(
+            controllerIdentity,
+            controllerTrust,
+            new PairingCodeService());
+
+        try
+        {
+            await server.StartAsync(
+                cancellationToken: TestContext.Current.CancellationToken);
+            using var tcp = new TcpClient(AddressFamily.InterNetwork);
+            await tcp.ConnectAsync(
+                IPAddress.Loopback,
+                server.Port,
+                TestContext.Current.CancellationToken);
+            byte[]? controllerFingerprint = null;
+            await using var tls = new SslStream(
+                tcp.GetStream(),
+                leaveInnerStreamOpen: false,
+                (_, certificate, _, _) =>
+                {
+                    if (certificate is null)
+                    {
+                        return false;
+                    }
+
+                    controllerFingerprint = SHA256.HashData(certificate.GetRawCertData());
+                    return true;
+                });
+            await tls.AuthenticateAsClientAsync(
+                new SslClientAuthenticationOptions
+                {
+                    TargetHost = $"ListenSphere-{controllerIdentity.Device.DeviceId:N}",
+                    EnabledSslProtocols = SslProtocols.Tls13,
+                    CertificateRevocationCheckMode = X509RevocationMode.NoCheck
+                },
+                TestContext.Current.CancellationToken);
+
+            Assert.Null(tls.LocalCertificate);
+            Envelope hello = ProtocolConstants.CreateEnvelope(1);
+            hello.HelloRequest = DeviceProof.Create(
+                senderIdentity,
+                Assert.IsType<byte[]>(controllerFingerprint));
+            await ControlFrameCodec.WriteAsync(
+                tls,
+                hello,
+                TestContext.Current.CancellationToken);
+            Envelope response = Assert.IsType<Envelope>(
+                await ControlFrameCodec.ReadAsync(
+                    tls,
+                    TestContext.Current.CancellationToken));
+
+            Assert.NotNull(response.HelloResponse);
+            Assert.False(response.HelloResponse.Paired);
+            Assert.Equal(ErrorCode.NotPaired, response.HelloResponse.Error);
+            Assert.Equal(hello.RequestId, response.RequestId);
         }
         finally
         {

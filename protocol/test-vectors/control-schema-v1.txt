@@ -1,0 +1,90 @@
+message ProtocolVersion reserved_numbers=- reserved_names=-
+  1 major UInt32 oneof=-
+  2 minor UInt32 oneof=-
+message DeviceIdentity reserved_numbers=- reserved_names=-
+  1 device_id Bytes oneof=-
+  2 display_name String oneof=-
+  3 platform String oneof=-
+  4 capabilities UInt64 oneof=-
+  5 certificate_fingerprint Bytes oneof=-
+message PairRequest reserved_numbers=- reserved_names=-
+  1 sender Message oneof=-
+  2 sender_nonce Bytes oneof=-
+  3 one_time_code String oneof=-
+message PairResponse reserved_numbers=- reserved_names=-
+  1 accepted Bool oneof=-
+  2 controller_nonce Bytes oneof=-
+  3 error Enum oneof=-
+  4 controller Message oneof=-
+message Heartbeat reserved_numbers=- reserved_names=-
+  1 monotonic_milliseconds UInt64 oneof=-
+message HelloRequest reserved_numbers=- reserved_names=-
+  1 device Message oneof=-
+  2 device_certificate Bytes oneof=-
+  3 client_nonce Bytes oneof=-
+  4 identity_signature Bytes oneof=-
+  5 source_id String oneof=-
+  6 source_name String oneof=-
+  7 source_kind String oneof=-
+message HelloResponse reserved_numbers=- reserved_names=-
+  1 controller Message oneof=-
+  2 paired Bool oneof=-
+  3 error Enum oneof=-
+message HeartbeatAck reserved_numbers=- reserved_names=-
+  1 echo_monotonic_milliseconds UInt64 oneof=-
+  2 responder_monotonic_milliseconds UInt64 oneof=-
+message Disconnect reserved_numbers=- reserved_names=-
+  1 error Enum oneof=-
+  2 reason String oneof=-
+message StartStream reserved_numbers=- reserved_names=-
+  1 stream_id Fixed32 oneof=-
+  2 codec UInt32 oneof=-
+  3 sample_rate UInt32 oneof=-
+  4 channel_count UInt32 oneof=-
+  5 frame_duration_ms UInt32 oneof=-
+  6 session_id Bytes oneof=-
+  7 session_key Bytes oneof=-
+  8 session_salt Bytes oneof=-
+  9 udp_port UInt32 oneof=-
+  10 frame_samples UInt32 oneof=-
+message StopStream reserved_numbers=- reserved_names=-
+  1 stream_id Fixed32 oneof=-
+  2 reason String oneof=-
+message OpenAudioStream reserved_numbers=- reserved_names=-
+  1 source_id String oneof=-
+  2 display_name String oneof=-
+  3 source_kind String oneof=-
+message AudioStreamOpened reserved_numbers=- reserved_names=-
+  1 source_id String oneof=-
+  2 display_name String oneof=-
+  3 source_kind String oneof=-
+  4 channel_id Bytes oneof=-
+  5 stream Message oneof=-
+  6 error Enum oneof=-
+message CloseAudioStream reserved_numbers=- reserved_names=-
+  1 stream_id Fixed32 oneof=-
+  2 reason String oneof=-
+message Envelope reserved_numbers=- reserved_names=-
+  1 version Message oneof=-
+  2 request_id Fixed64 oneof=-
+  10 pair_request Message oneof=payload
+  11 pair_response Message oneof=payload
+  12 heartbeat Message oneof=payload
+  13 start_stream Message oneof=payload
+  14 stop_stream Message oneof=payload
+  15 hello_request Message oneof=payload
+  16 hello_response Message oneof=payload
+  17 heartbeat_ack Message oneof=payload
+  18 disconnect Message oneof=payload
+  19 open_audio_stream Message oneof=payload
+  20 audio_stream_opened Message oneof=payload
+  21 close_audio_stream Message oneof=payload
+enum ErrorCode
+  0 ERROR_CODE_UNSPECIFIED
+  1 ERROR_CODE_INCOMPATIBLE_VERSION
+  2 ERROR_CODE_NOT_PAIRED
+  3 ERROR_CODE_PAIRING_CODE_INVALID
+  4 ERROR_CODE_PAIRING_RATE_LIMITED
+  5 ERROR_CODE_CAPABILITY_NOT_SUPPORTED
+  6 ERROR_CODE_STREAM_REJECTED
+  7 ERROR_CODE_INTERNAL

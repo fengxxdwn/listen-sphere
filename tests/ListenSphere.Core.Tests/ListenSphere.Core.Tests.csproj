@@ -16,4 +16,9 @@
     <ProjectReference Include="../../src/ListenSphere.Diagnostics/ListenSphere.Diagnostics.csproj" />
     <ProjectReference Include="../../src/ListenSphere.Network/ListenSphere.Network.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../../protocol/test-vectors/device-proof-payload-v1.txt"
+          Link="vectors/device-proof-payload-v1.txt"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

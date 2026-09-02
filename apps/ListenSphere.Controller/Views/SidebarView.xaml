@@ -1,0 +1,116 @@
+<UserControl x:Class="ListenSphere.Controller.Views.SidebarView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+<Border Background="{StaticResource SidebarBrush}">
+    <Grid Margin="16,18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock Style="{StaticResource EyebrowText}" Text="控制中心" />
+            <Border Margin="0,8,0,0"
+                    Padding="11,9"
+                    Background="#1A2638"
+                    CornerRadius="8">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource IconText}"
+                               Foreground="{StaticResource AccentBrush}"
+                               Text="&#xE9D2;" />
+                    <TextBlock Margin="10,0,0,0"
+                               VerticalAlignment="Center"
+                               FontWeight="SemiBold"
+                               Text="声音总览" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <Border Grid.Row="1"
+                Margin="0,14,0,0"
+                Padding="12"
+                Background="{StaticResource SurfaceSubtleBrush}"
+                CornerRadius="10">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource IconText}"
+                               Foreground="#7FD6B2"
+                               Text="&#xE703;" />
+                    <TextBlock Margin="9,0,0,0"
+                               VerticalAlignment="Center"
+                               Foreground="White"
+                               FontWeight="SemiBold"
+                            Text="发送接入" />
+                </StackPanel>
+                <TextBlock Margin="0,6,0,9"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           FontSize="11"
+                           Text="{Binding SenderStatusText}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
+        <StackPanel Grid.Row="2" Margin="0,15,0,12" VerticalAlignment="Top">
+            <TextBlock Style="{StaticResource EyebrowText}" Text="场景预设" />
+            <ListBox Height="142"
+                      Margin="0,8,0,0"
+                      ItemsSource="{Binding Scenes}"
+                     SelectedItem="{Binding SelectedScene}"
+                     DisplayMemberPath="Name" />
+            <TextBox Height="32"
+                     Margin="0,10,0,0"
+                     Padding="8,5"
+                     Text="{Binding NewSceneName, UpdateSourceTrigger=PropertyChanged}"
+                     ToolTip="输入场景名称；留空将自动命名" />
+            <WrapPanel Margin="0,8,0,0">
+                <Button Command="{Binding SaveSceneCommand}" Content="保存当前" />
+                <Button Margin="6,0,0,0"
+                        Command="{Binding ApplySceneCommand}"
+                        Content="恢复" />
+                <Button Margin="6,0,0,0"
+                        Command="{Binding DeleteSceneCommand}"
+                        Content="删除" />
+            </WrapPanel>
+            <WrapPanel Margin="0,6,0,0">
+                <Button Command="{Binding RenameSceneCommand}" Content="重命名" />
+                <Button Margin="6,0,0,0" Command="{Binding DuplicateSceneCommand}" Content="复制" />
+                <Button Margin="6,0,0,0" Command="{Binding ImportSceneCommand}" Content="导入" />
+                <Button Margin="6,0,0,0" Command="{Binding ExportSceneCommand}" Content="导出" />
+            </WrapPanel>
+            <TextBlock Margin="0,8,0,0"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       FontSize="11"
+                       Text="{Binding SceneStatusText}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="3">
+            <TextBlock Style="{StaticResource EyebrowText}" Text="添加设备" />
+            <Border Margin="0,8,0,0"
+                    Padding="12"
+                    Background="{StaticResource SurfaceSubtleBrush}"
+                    CornerRadius="10">
+                <StackPanel>
+                    <TextBlock Foreground="White" Text="一次性配对码" />
+                    <TextBlock Margin="0,5,0,0"
+                               Foreground="#7FD6B2"
+                               FontFamily="Consolas"
+                               FontSize="22"
+                               FontWeight="SemiBold"
+                               Text="{Binding Network.PairingCode}" />
+                    <Button Margin="0,8,0,0"
+                            HorizontalAlignment="Left"
+                            Command="{Binding Network.GenerateCodeCommand}"
+                            Content="{Binding Network.PairingCodeActionText}" />
+                    <TextBlock Margin="0,8,0,0"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               FontSize="11"
+                               Text="{Binding Network.PairingHint}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </Grid>
+</Border>
+</UserControl>

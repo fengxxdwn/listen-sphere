@@ -1,0 +1,55 @@
+<UserControl x:Class="ListenSphere.Controller.Views.ChannelDynamicsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Margin="0,0,0,12" Padding="12,10" Background="#151D27" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="8">
+        <StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock FontWeight="SemiBold" Text="动态处理" />
+                    <TextBlock Margin="9,0,0,0" FontSize="10" Foreground="{Binding DynamicsStatusColor}" Text="{Binding DynamicsStatusText}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <CheckBox Margin="0,0,12,0" IsChecked="{Binding IsVoiceDuckingTrigger, Mode=TwoWay}" Content="语音触发" />
+                    <CheckBox IsChecked="{Binding IsVoiceDuckingTarget, Mode=TwoWay}" Content="被闪避" />
+                </StackPanel>
+            </Grid>
+            <Grid Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                    <TextBlock FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" Text="前级增益" />
+                    <Slider Minimum="-24" Maximum="12" Value="{Binding PreampDb, Mode=TwoWay}" />
+                    <TextBlock HorizontalAlignment="Right" FontSize="10" Text="{Binding PreampDb, StringFormat={}{0:F1} dB}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="0,0,12,0">
+                    <CheckBox IsChecked="{Binding NoiseGateEnabled, Mode=TwoWay}" Content="噪声门" />
+                    <Slider Minimum="-80" Maximum="-10" Value="{Binding NoiseGateThresholdDb, Mode=TwoWay}" />
+                    <TextBlock HorizontalAlignment="Right" FontSize="10" Text="{Binding NoiseGateThresholdDb, StringFormat={}{0:F0} dB}" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Margin="0,0,12,0">
+                    <CheckBox IsChecked="{Binding CompressorEnabled, Mode=TwoWay}" Content="压缩器" />
+                    <Slider Minimum="-40" Maximum="0" Value="{Binding CompressorThresholdDb, Mode=TwoWay}" />
+                    <TextBlock HorizontalAlignment="Right" FontSize="10" Text="{Binding CompressorThresholdDb, StringFormat={}{0:F0} dB}" />
+                </StackPanel>
+                <StackPanel Grid.Column="3" Margin="0,0,12,0">
+                    <TextBlock FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" Text="压缩比 / 闪避" />
+                    <Slider Minimum="1" Maximum="20" Value="{Binding CompressorRatio, Mode=TwoWay}" />
+                    <TextBlock HorizontalAlignment="Right" FontSize="10" Text="{Binding CompressorRatio, StringFormat={}{0:F1}:1}" />
+                    <Slider Minimum="0" Maximum="30" Value="{Binding VoiceDuckingReductionDb, Mode=TwoWay}" />
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                    <CheckBox IsChecked="{Binding LimiterEnabled, Mode=TwoWay}" Content="声道限幅" />
+                    <Slider Minimum="-12" Maximum="-0.1" Value="{Binding LimiterCeilingDb, Mode=TwoWay}" />
+                    <TextBlock HorizontalAlignment="Right" FontSize="10" Text="{Binding LimiterCeilingDb, StringFormat={}{0:F1} dB}" />
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </Border>
+</UserControl>
