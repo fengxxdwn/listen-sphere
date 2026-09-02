@@ -78,4 +78,18 @@ public sealed class AdditionalOutputDeviceItemViewModel : INotifyPropertyChanged
     public void RefreshSummary() => Summary = Routes.Count == 0
         ? "拖动音源卡片到这里"
         : $"已接收 {Routes.Count} 个音源";
+
+    public bool RemoveRoute(Guid channelId)
+    {
+        AdditionalOutputRouteItemViewModel? route = Routes.FirstOrDefault(
+            candidate => candidate.ChannelId == channelId);
+        if (route is null)
+        {
+            return false;
+        }
+
+        Routes.Remove(route);
+        RefreshSummary();
+        return true;
+    }
 }

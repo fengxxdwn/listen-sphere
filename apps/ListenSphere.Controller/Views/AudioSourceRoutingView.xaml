@@ -376,7 +376,7 @@
                                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="28" /></Grid.ColumnDefinitions>
                                                 <TextBlock VerticalAlignment="Center" FontSize="10" Text="{Binding SourceName}" TextTrimming="CharacterEllipsis" />
                                                 <TextBlock Grid.Column="1" Margin="7,0" VerticalAlignment="Center" Foreground="{StaticResource SuccessBrush}" FontSize="9" Text="{Binding StatusText}" />
-                                                <Button Grid.Column="2" Width="25" Height="23"
+                                                <Button Grid.Column="2" Width="28" Height="28"
                                                         AutomationProperties.Name="{Binding SourceName, StringFormat=从附加输出移除 {0}}"
                                                         Command="{Binding RemoveCommand}"
                                                         Style="{StaticResource IconButton}"

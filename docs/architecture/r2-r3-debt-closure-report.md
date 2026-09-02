@@ -69,11 +69,11 @@ Shell 的关闭流程先解除七个展示模型的属性订阅，再释放运�
 
 - `dotnet restore ListenSphere.sln`：通过。
 - `dotnet build ListenSphere.sln -c Release --no-restore -m:1`：0 警告、0 错误。
-- 全量 .NET：146/146 通过。
+- 全量 .NET：147/147 通过。
   - Architecture：7
   - Core：52
   - Protocol：14
-  - Windows Technical：73
+  - Windows Technical：74
 - 新增覆盖：
   - 七个 Network 子模型绑定路径门禁。
   - MainWindow ContentHost/Dialog Host 页面边界。
@@ -114,6 +114,12 @@ Shell 的关闭流程先解除七个展示模型的属性订阅，再释放运�
 持有互斥量，后续重复启动立即退出，退出时可靠释放。实测连续启动两次仅保留首个
 进程；第二个进程立即退出。新增互斥、并发拒绝和释放后重启测试，修复后的 Release
 构建为 0 警告、0 错误，全量 .NET 146/146 通过。
+
+用户继续复验发现第一次点击后存在可感知延迟，多次点击才看到卡片消失。删除配置本身
+已经同步完成，但展示层仍等待协调器快照重建，命令同时等待 WASAPI 路由与捕获资源
+清理。现在第一次点击先从当前输出设备的展示集合移除路由并刷新音源数量，再让出一次
+Dispatcher 渲染周期，之后更新配置并在后台完成资源清理；删除按钮命中区域同步扩大。
+新增即时投影删除测试，最终 Release 构建 0 警告、0 错误，全量 .NET 147/147 通过。
 
 ## 已知风险
 

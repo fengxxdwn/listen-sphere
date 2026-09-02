@@ -40,6 +40,30 @@ public sealed class NetworkPresentationTests
     }
 
     [Fact]
+    public void AdditionalOutputDevice_RemoveRoute_UpdatesProjectionImmediately()
+    {
+        Guid firstChannelId = Guid.NewGuid();
+        Guid secondChannelId = Guid.NewGuid();
+        var device = new AdditionalOutputDeviceItemViewModel(
+            "secondary-device",
+            "Secondary Device",
+            50,
+            false,
+            (_, _) => { },
+            (_, _) => { });
+        device.Routes.Add(CreateRoute(firstChannelId));
+        device.Routes.Add(CreateRoute(secondChannelId));
+        device.RefreshSummary();
+
+        bool removed = device.RemoveRoute(firstChannelId);
+
+        Assert.True(removed);
+        Assert.Single(device.Routes);
+        Assert.Equal(secondChannelId, device.Routes[0].ChannelId);
+        Assert.Equal("已接收 1 个音源", device.Summary);
+    }
+
+    [Fact]
     public async Task Commands_AreForwardedFromRuntimeThroughPresentationModels()
     {
         ControllerNetworkRuntime runtime = CreateRuntimeWithoutResources();
@@ -88,6 +112,14 @@ public sealed class NetworkPresentationTests
     private static ControllerNetworkRuntime CreateRuntimeWithoutResources() =>
         (ControllerNetworkRuntime)RuntimeHelpers.GetUninitializedObject(
             typeof(ControllerNetworkRuntime));
+
+    private static AdditionalOutputRouteItemViewModel CreateRoute(Guid channelId) =>
+        new(
+            channelId,
+            "secondary-device",
+            "本地声音",
+            true,
+            (_, _) => Task.CompletedTask);
 
     private static void SetAutoProperty<T>(
         ControllerNetworkRuntime runtime,

@@ -1447,6 +1447,15 @@ public sealed class ControllerNetworkRuntime :
                 candidate.DeviceId,
                 deviceId,
                 StringComparison.Ordinal));
+        AdditionalOutputDeviceItemViewModel? projectedOutput = AdditionalOutputs
+            .FirstOrDefault(output => string.Equals(
+                output.DeviceId,
+                deviceId,
+                StringComparison.Ordinal));
+        projectedOutput?.RemoveRoute(channelId);
+        await System.Windows.Threading.Dispatcher.Yield(
+            System.Windows.Threading.DispatcherPriority.Background);
+
         Task cleanup = localAudioRoutingCoordinator.RemoveRouteAsync(channelId, deviceId);
         ApplyLocalAudioRoutingSnapshot(localAudioRoutingCoordinator.Snapshot);
         AudioStatus = route is null
