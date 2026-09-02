@@ -3,8 +3,8 @@
 ## 阶段目标
 
 R3 在 R2 已完成运行时职责拆分的基础上治理 WPF 展示层。阶段内只调整 XAML
-组织、视图边界和展示层聚合，不改变音频链路、网络协议、设置结构、命令名称、
-绑定路径或 Android 行为。
+组织、视图边界和展示层聚合，不改变音频链路、网络协议、设置结构、业务命令语义
+或 Android 行为。
 
 R3 共分 5 批：
 
@@ -16,8 +16,8 @@ R3 共分 5 批：
 
 ## 当前结论
 
-- R3 总进度：`4/5` 批代码与自动化门禁完成，等待第 4 批人工验收。
-- 当前批次：调音、分组混音与麦克风中枢视图拆分。
+- R3 总进度：`5/5` 批全部完成，自动化与人工验收均通过。
+- 当前状态：R3 已于 2026-09-02 验收完成。
 - 业务行为变化：无。
 - 协议、设置和 Android 变化：无。
 
@@ -180,7 +180,11 @@ R3 共分 5 批：
 - 新增 `MicrophoneHubView` 聚合麦克风中枢，并进一步拆分 `MicrophoneRoutingView` 与
   `MicrophoneMonitoringView`；Windows 麦克风设置跳转事件从 `MainWindow` 迁入
   `MicrophoneRoutingView`。
-- 未修改绑定路径、命令、设置结构、音频协调器、网络协议或 Android 行为。
+- 修复设备集合刷新后“Windows 默认麦克风输入”丢失选中项：三个麦克风设备选择框
+  统一改为按当前快照设备 ID 投影稳定索引，集合重建后主动恢复选中状态；播放设备
+  刷新时同时同步监听设备索引。
+- 除设备选择由 ID 值绑定改为稳定索引绑定外，未修改命令、设置结构、音频协调器、
+  网络协议或 Android 行为。
 
 ### 尺寸变化
 
@@ -204,6 +208,50 @@ R3 共分 5 批：
 - Release Controller 启动 8 秒后窗口标题、句柄和响应状态正常；UI Automation
   验证麦克风中枢、启用开关、4 个设备下拉控件及分组入口存在，分组 Popup 可打开且
   “分组混音器”内容成功呈现。
+- 默认麦克风回归验证：UI Automation 定位“Windows 默认麦克风输入”选择框，
+  实际读取到 1 个选中项 `Mic (MCHOSE V9 PRO)`，Controller 保持响应。
+
+## 第 5 批：展示层收口
+
+### 实际修改
+
+- 新增 `ControllerDashboardView`，把控制中心 Header、状态摘要、音源路由、
+  麦克风、远端设备、本机应用和诊断区域从 `MainWindow` 提取为独立页面。
+- 新增 `ControllerDashboardViewModel`，只投影控制中心页面所需的 Network、
+  Sessions、状态、峰值和页面命令；根 ViewModel 继续拥有初始化、设置持久化与资源
+  生命周期，页面模型不接管业务职责。
+- 子视图 code-behind 改为依赖页面模型提供的 Network 与错误反馈入口，拖放、设备
+  设置跳转和附加输出行为保持不变。
+- 新增 `ZeroCountToVisibilityConverter`，统一远端设备和本机应用空状态可见性；
+  转换器注册为应用资源，并增加数值、集合、无效输入和 ConvertBack 回归测试。
+- 新增 `ControllerDashboardDesignData`，为 XAML 设计器提供远端设备、本机应用、
+  输出设备、网络状态与电平示例，不进入运行时业务依赖。
+- 架构测试扩展为扫描全部 Controller XAML，并锁定
+  `MainWindow → ControllerDashboardView → Dashboard` 页面边界。
+
+### 尺寸变化
+
+| 文件 | 第 4 批后 | 第 5 批后 |
+| --- | ---: | ---: |
+| `MainWindow.xaml` | 35,561 B / 563 行 | 10,049 B / 194 行 |
+| `ControllerDashboardView.xaml` | 不存在 | 26,510 B / 375 行 |
+| `ControllerDashboardViewModel.cs` | 不存在 | 1,526 B / 44 行 |
+| `ZeroCountToVisibilityConverter.cs` | 不存在 | 765 B / 30 行 |
+| `ControllerDashboardDesignData.cs` | 不存在 | 3,359 B / 92 行 |
+
+### 第 5 批自动化门禁
+
+- Controller Debug/XAML 编译：通过，0 警告、0 错误。
+- 全解决方案 Release build：通过，0 警告、0 错误。
+- 全量 .NET 测试：138/138 通过（Architecture 3、Core 52、Protocol 14、
+  Windows Technical 69）。
+- Android `assembleDebug testDebugUnitTest --no-daemon`：通过；25/25 测试通过，
+  0 failures，0 errors，Debug APK 存在。
+- Release Controller 启动 8 秒后窗口标题、句柄和响应状态正常。
+- UI Automation 验证页面 Header“刷新应用”、路由“刷新播放设备”、发送连接、
+  诊断入口均存在；默认麦克风选择框保持 1 个选中项。
+- `git diff --check`：无空白错误；仅有既有 LF/CRLF 提示。
+- TRX 保存在被忽略的 `TestResults/R3/batch-5/dotnet/`。
 
 ## 自动化门禁
 
@@ -234,10 +282,37 @@ R3 共分 5 批：
 - 各页面切换、音源卡片、路由展开区、麦克风中枢无资源缺失或白色默认控件。
 - 高 DPI、窗口缩放和圆角边界无新增视觉异常。
 
-第 3 批人工验收需确认同一 PID 跨两个 Windows 输出端点只显示一张应用卡片，
-路由展开区准确列出多个端点，应用音量/静音控制全部子会话；同时回归本机、远端、
-应用卡片拖放以及附加输出添加/删除同步。验收通过后进入第 4 批调音与麦克风视图。
+最终人工验收已通过，覆盖页面滚动、Header 刷新、连接方式切换、音源与应用卡片
+拖放、附加输出添加/删除、调音 Popup、分组混音、麦克风设备选择及诊断入口。
+R3 正式完成；现有 Windows 部署 ZIP 生成于第 5 批之前，应在 R4 重新发布。
 
-R3 完成后新增独立功能阶段“主控端代理麦克风与反向音频链路”，不插入当前结构
-治理批次。实施范围和兼容边界见
+## 阶段验收结论
+
+**R3 通过。** 五批展示层治理均已完成，Release 构建、138 项 .NET 测试、25 项
+Android 测试和最终人工回归全部通过。后续阶段不得以展示层调整为由改变现有音频、
+路由、协议或设置语义。
+
+## R3 发布前基线固化（2026-09-02）
+
+- 已关闭运行中的 Controller/Sender，并从干净的运行时状态重新执行门禁。
+- `dotnet restore ListenSphere.sln`：通过。
+- `dotnet build ListenSphere.sln -c Release --no-restore -m:1`：通过，0 警告、0 错误。
+- 全量 .NET 测试：138/138 通过（Architecture 3、Core 52、Protocol 14、
+  Windows Technical 69）；TRX 位于被忽略的
+  `TestResults/R3/final-baseline/dotnet/`。
+- Android 使用 JDK 17、SDK 34 与 Gradle 8.10.2 执行
+  `assembleDebug testDebugUnitTest --no-daemon`：构建成功，25/25 测试通过，0 failures、
+  0 errors，Debug APK 存在。首次临时盘符执行因未继承 SDK 路径而在任务解析前停止；
+  显式设置 `ANDROID_HOME` 后同一命令通过，未修改依赖或项目配置。
+- UI Automation：Release Controller 窗口正常显示并响应；“刷新应用”“刷新播放设备”
+  和“导出诊断包”入口存在；初始化 8 秒后“Windows 默认麦克风输入”保持单选，实际设备为
+  `Mic (MCHOSE V9 PRO)`。
+- Git 索引卫生扫描通过：未跟踪 wpftmp、bin、obj、APK、日志、TestResults 或 IDE 文件。
+- R3 以前生成的 Windows ZIP 已过期，不作为后续发布基线。
+- 后续阶段及固定验收边界见
+  [`r4-r10-governance-plan.md`](r4-r10-governance-plan.md)。
+
+原拟定的后续阶段“主控端代理麦克风与反向音频链路”已于 2026-09-02 暂缓，
+不作为 R4 启动。原因是普通 Android 应用无法可靠注入系统电话或第三方通话应用的
+麦克风上行；保留的研究范围和重新启动条件见
 [`future-controller-proxy-microphone-plan.md`](../development/future-controller-proxy-microphone-plan.md)。

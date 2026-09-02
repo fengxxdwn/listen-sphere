@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using ListenSphere.Controller.Presentation;
 
 namespace ListenSphere.Controller.Views;
 
@@ -44,7 +45,7 @@ public partial class AudioSourceRoutingView : UserControl
                 DataContext: AdditionalOutputDeviceItemViewModel target
             } ||
             !AudioRoutingDragState.TryGetChannelId(args, out Guid channelId) ||
-            DataContext is not ControllerViewModel viewModel)
+            DataContext is not ControllerDashboardViewModel viewModel)
         {
             return;
         }
@@ -61,7 +62,7 @@ public partial class AudioSourceRoutingView : UserControl
             {
                 DataContext: AdditionalOutputRouteItemViewModel route
             } ||
-            DataContext is not ControllerViewModel viewModel)
+            DataContext is not ControllerDashboardViewModel viewModel)
         {
             return;
         }

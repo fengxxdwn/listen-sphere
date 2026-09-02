@@ -22,17 +22,9 @@
         Background="{StaticResource SurfaceSubtleBrush}"
         BorderBrush="Transparent"
         BorderThickness="0"
-        CornerRadius="10">
-    <Border.Style>
-        <Style TargetType="Border">
-            <Setter Property="Visibility" Value="Collapsed" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Sessions.Count}" Value="0">
-                    <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-    </Border.Style>
+        CornerRadius="10"
+        Visibility="{Binding Sessions.Count,
+            Converter={StaticResource ZeroCountToVisibilityConverter}}">
     <StackPanel>
         <TextBlock FontWeight="SemiBold" Text="当前没有应用正在播放声音" />
         <TextBlock Margin="0,4,0,0"

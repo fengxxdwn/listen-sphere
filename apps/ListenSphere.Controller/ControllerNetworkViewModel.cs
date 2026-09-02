@@ -447,6 +447,20 @@ public sealed class ControllerNetworkViewModel :
         }
     }
 
+    public int SelectedMicrophoneOutputDeviceIndex
+    {
+        get => FindDeviceIndex(
+            MicrophoneOutputDevices,
+            microphoneHubCoordinator.Snapshot.SelectedVirtualOutput?.Id);
+        set
+        {
+            if (value >= 0 && value < MicrophoneOutputDevices.Count)
+            {
+                SelectedMicrophoneOutputDevice = MicrophoneOutputDevices[value];
+            }
+        }
+    }
+
     public string SelectedMicrophoneOutputDeviceDisplayName =>
         microphoneHubCoordinator.Snapshot.SelectedVirtualOutput?.DisplayName ?? string.Empty;
 
@@ -487,6 +501,20 @@ public sealed class ControllerNetworkViewModel :
         }
     }
 
+    public int SelectedMicrophoneMonitoringDeviceIndex
+    {
+        get => FindDeviceIndex(
+            PlaybackDevices,
+            microphoneHubCoordinator.Snapshot.SelectedMonitoringDevice?.Id);
+        set
+        {
+            if (value >= 0 && value < PlaybackDevices.Count)
+            {
+                SelectedMicrophoneMonitoringDevice = PlaybackDevices[value];
+            }
+        }
+    }
+
     public string SelectedMicrophoneMonitoringDeviceDisplayName =>
         microphoneHubCoordinator.Snapshot.SelectedMonitoringDevice?.DisplayName ?? string.Empty;
 
@@ -523,6 +551,20 @@ public sealed class ControllerNetworkViewModel :
             if (device is not null)
             {
                 SelectedComputerMicrophoneDevice = device;
+            }
+        }
+    }
+
+    public int SelectedComputerMicrophoneDeviceIndex
+    {
+        get => FindDeviceIndex(
+            RecordingDevices,
+            microphoneHubCoordinator.Snapshot.SelectedComputerMicrophone?.Id);
+        set
+        {
+            if (value >= 0 && value < RecordingDevices.Count)
+            {
+                SelectedComputerMicrophoneDevice = RecordingDevices[value];
             }
         }
     }
@@ -926,6 +968,7 @@ public sealed class ControllerNetworkViewModel :
         OnPropertyChanged(nameof(SelectedPlaybackDeviceId));
         OnPropertyChanged(nameof(SelectedPlaybackDeviceIndex));
         OnPropertyChanged(nameof(SelectedPlaybackDeviceDisplayName));
+        OnPropertyChanged(nameof(SelectedMicrophoneMonitoringDeviceIndex));
         OnPropertyChanged(nameof(FollowSystemDefaultPlayback));
         OnPropertyChanged(nameof(MasterVolumePercent));
         OnPropertyChanged(nameof(IsSystemMuted));
@@ -1076,6 +1119,9 @@ public sealed class ControllerNetworkViewModel :
                 MicrophoneOutputDevices.Add(device);
             }
         }
+        OnPropertyChanged(nameof(SelectedComputerMicrophoneDeviceIndex));
+        OnPropertyChanged(nameof(SelectedMicrophoneOutputDeviceIndex));
+        OnPropertyChanged(nameof(SelectedMicrophoneMonitoringDeviceIndex));
         if (!string.Equals(
                 previous.SelectedComputerMicrophone?.Id,
                 snapshot.SelectedComputerMicrophone?.Id,
@@ -2252,6 +2298,24 @@ public sealed class ControllerNetworkViewModel :
         string DeviceId,
         string DeviceName,
         bool IsActive);
+
+    private static int FindDeviceIndex(
+        IReadOnlyList<IAudioDevice> devices,
+        string? selectedId)
+    {
+        if (selectedId is null)
+        {
+            return -1;
+        }
+        for (int index = 0; index < devices.Count; index++)
+        {
+            if (string.Equals(devices[index].Id, selectedId, StringComparison.Ordinal))
+            {
+                return index;
+            }
+        }
+        return -1;
+    }
 
     private bool SetField<T>(
         ref T field,

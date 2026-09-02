@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using ListenSphere.Controller.Presentation;
 using Serilog;
 
 namespace ListenSphere.Controller.Views;
@@ -11,7 +12,7 @@ public partial class MicrophoneRoutingView : UserControl
 
     private void OpenSelectedMicrophoneSettings_Click(object sender, RoutedEventArgs args)
     {
-        if (DataContext is not ControllerViewModel viewModel ||
+        if (DataContext is not ControllerDashboardViewModel viewModel ||
             viewModel.Network.SelectedComputerMicrophoneDevice is not { } device)
         {
             return;

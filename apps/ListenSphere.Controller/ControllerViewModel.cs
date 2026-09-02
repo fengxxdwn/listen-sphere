@@ -10,6 +10,7 @@ using System.Windows;
 using System.Windows.Media;
 using ListenSphere.Configuration;
 using ListenSphere.Diagnostics;
+using ListenSphere.Controller.Presentation;
 using ListenSphere.Windows.AudioSessions;
 using Microsoft.Win32;
 using Serilog;
@@ -64,6 +65,7 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         this.diagnosticsExporter = diagnosticsExporter;
         this.diagnosticEvents = diagnosticEvents;
         Network = network;
+        Dashboard = new ControllerDashboardViewModel(this);
         Network.LocalSourceControlChanged += OnLocalSourceControlChanged;
         RefreshCommand = new AsyncRelayCommand(RefreshAsync);
         SaveSceneCommand = new AsyncRelayCommand(SaveSceneAsync);
@@ -93,6 +95,7 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
     public ObservableCollection<AudioSessionItemViewModel> Sessions { get; } = [];
     public ObservableCollection<SceneSettings> Scenes { get; } = [];
     public ControllerNetworkViewModel Network { get; }
+    public ControllerDashboardViewModel Dashboard { get; }
     public AsyncRelayCommand RefreshCommand { get; }
     public AsyncRelayCommand SaveSceneCommand { get; }
     public AsyncRelayCommand ApplySceneCommand { get; }
@@ -262,6 +265,7 @@ public sealed class ControllerViewModel : INotifyPropertyChanged, IAsyncDisposab
         volumeDebounce.Clear();
         settingsDebounce?.Cancel();
         settingsDebounce?.Dispose();
+        Dashboard.Dispose();
         try
         {
             await PersistSettingsAsync(CancellationToken.None);

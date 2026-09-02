@@ -16,9 +16,9 @@
                 <ColumnDefinition Width="38" />
             </Grid.ColumnDefinitions>
             <Grid Margin="0,0,6,0">
-                <ComboBox ItemsSource="{Binding Network.RecordingDevices}"
-                          SelectedValuePath="Id"
-                          SelectedValue="{Binding Network.SelectedComputerMicrophoneDeviceId, Mode=TwoWay}"
+                <ComboBox AutomationProperties.Name="Windows 默认麦克风输入"
+                          ItemsSource="{Binding Network.RecordingDevices}"
+                          SelectedIndex="{Binding Network.SelectedComputerMicrophoneDeviceIndex, Mode=TwoWay}"
                           Tag="{Binding Network.SelectedComputerMicrophoneDeviceDisplayName}"
                           DisplayMemberPath="DisplayName"
                           ToolTip="选择 Windows 默认麦克风，并将其接入聆界麦克风输出链路" />
@@ -63,9 +63,9 @@
                    FontSize="9"
                    Text="输出到 Windows 录音设备" />
         <Grid Height="32">
-            <ComboBox ItemsSource="{Binding Network.MicrophoneOutputDevices}"
-                      SelectedValuePath="Id"
-                      SelectedValue="{Binding Network.SelectedMicrophoneOutputDeviceId, Mode=TwoWay}"
+            <ComboBox AutomationProperties.Name="Windows 录音输出设备"
+                      ItemsSource="{Binding Network.MicrophoneOutputDevices}"
+                      SelectedIndex="{Binding Network.SelectedMicrophoneOutputDeviceIndex, Mode=TwoWay}"
                       Tag="{Binding Network.SelectedMicrophoneOutputDeviceDisplayName}"
                       DisplayMemberPath="DisplayName" />
             <Border IsHitTestVisible="False"

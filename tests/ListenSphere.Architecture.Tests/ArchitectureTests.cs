@@ -62,12 +62,14 @@ public sealed class ArchitectureTests
         }
 
         Assert.NotNull(repository);
-        XDocument document = XDocument.Load(Path.Combine(
+        string controllerDirectory = Path.Combine(
             repository,
             "apps",
-            "ListenSphere.Controller",
-            "MainWindow.xaml"));
-        IEnumerable<XElement> toggleButtons = document.Descendants()
+            "ListenSphere.Controller");
+        IEnumerable<XElement> toggleButtons = Directory
+            .EnumerateFiles(controllerDirectory, "*.xaml", SearchOption.AllDirectories)
+            .Select(XDocument.Load)
+            .SelectMany(document => document.Descendants())
             .Where(element => element.Name.LocalName == "ToggleButton");
 
         Assert.DoesNotContain(toggleButtons, element =>
@@ -75,5 +77,33 @@ public sealed class ArchitectureTests
                 element.Attribute("Style")?.Value,
                 "{StaticResource IconButton}",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ControllerMainWindow_DelegatesDashboardToPageViewModel()
+    {
+        string? repository = AppContext.BaseDirectory;
+        while (repository is not null &&
+               !File.Exists(Path.Combine(repository, "ListenSphere.sln")))
+        {
+            repository = Directory.GetParent(repository)?.FullName;
+        }
+
+        Assert.NotNull(repository);
+        XDocument document = XDocument.Load(Path.Combine(
+            repository,
+            "apps",
+            "ListenSphere.Controller",
+            "MainWindow.xaml"));
+        XElement dashboard = Assert.Single(
+            document.Descendants(),
+            element => element.Name.LocalName == "ControllerDashboardView");
+        XAttribute? dataContext = dashboard.Attributes()
+            .FirstOrDefault(attribute => attribute.Name.LocalName == "DataContext");
+
+        Assert.Equal("{Binding Dashboard}", dataContext?.Value);
+        Assert.DoesNotContain(
+            document.Descendants(),
+            element => element.Name.LocalName == "ScrollViewer");
     }
 }

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using ListenSphere.Controller.Presentation;
 using Serilog;
 
 namespace ListenSphere.Controller.Views;
@@ -39,7 +40,7 @@ public partial class LocalApplicationsView : UserControl
         catch (Exception exception)
         {
             Log.Warning(exception, "Failed to open Windows app volume settings");
-            (DataContext as ControllerViewModel)?.ReportError(
+            (DataContext as ControllerDashboardViewModel)?.ReportError(
                 $"无法打开 Windows 应用音量设置：{exception.Message}");
         }
     }
@@ -50,7 +51,7 @@ public partial class LocalApplicationsView : UserControl
             {
                 SelectedAdditionalOutput: { } output
             } session ||
-            DataContext is not ControllerViewModel viewModel)
+            DataContext is not ControllerDashboardViewModel viewModel)
         {
             return;
         }
