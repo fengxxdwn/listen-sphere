@@ -1,0 +1,92 @@
+<UserControl x:Class="ListenSphere.Controller.Views.DeleteDeviceConfirmationDialogView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Background="#D90B0F15">
+        <Border.Style>
+            <Style TargetType="Border">
+                <Setter Property="Visibility" Value="Collapsed" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Network.RemoteDevices.IsDeleteConfirmationVisible}" Value="True">
+                        <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </Border.Style>
+        <Border Width="470"
+                Padding="28"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="{StaticResource SurfaceRaisedBrush}"
+                BorderBrush="#704048"
+                BorderThickness="1"
+                CornerRadius="16">
+            <Border.RenderTransform>
+                <ScaleTransform ScaleX="1" ScaleY="1" />
+            </Border.RenderTransform>
+            <Border.Triggers>
+                <EventTrigger RoutedEvent="Loaded">
+                    <BeginStoryboard>
+                        <Storyboard>
+                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                             From="0" To="1" Duration="0:0:0.16" />
+                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                             From="0.97" To="1" Duration="0:0:0.18" />
+                            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                             From="0.97" To="1" Duration="0:0:0.18" />
+                        </Storyboard>
+                    </BeginStoryboard>
+                </EventTrigger>
+            </Border.Triggers>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="42" Height="42" Background="#3A2229" CornerRadius="11">
+                        <TextBlock HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource IconText}"
+                                   FontSize="20"
+                                   Foreground="{StaticResource ErrorBrush}"
+                                   Text="&#xE74D;" />
+                    </Border>
+                    <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                        <TextBlock FontSize="20" FontWeight="SemiBold" Text="删除这台设备？" />
+                        <TextBlock Margin="0,3,0,0"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Text="此操作会撤销设备信任" />
+                    </StackPanel>
+                </StackPanel>
+                <TextBlock Grid.Row="1"
+                           Margin="0,22,0,22"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           LineHeight="23"
+                           TextWrapping="Wrap">
+                    <Run Text="设备“" />
+                    <Run FontWeight="SemiBold"
+                         Foreground="{StaticResource TextPrimaryBrush}"
+                         Text="{Binding Network.RemoteDevices.DeleteConfirmationDeviceName, Mode=OneWay}" />
+                    <Run Text="”将立即断开并从可信设备中移除。再次连接时，需要重新输入六位验证码。" />
+                </TextBlock>
+                <StackPanel Grid.Row="2"
+                            HorizontalAlignment="Right"
+                            Orientation="Horizontal">
+                    <Button MinWidth="86"
+                            AutomationProperties.Name="取消删除设备"
+                            Command="{Binding Network.RemoteDevices.CancelDeleteCommand}"
+                            Content="取消" />
+                    <Button MinWidth="106"
+                            Margin="10,0,0,0"
+                            Background="#B94E59"
+                            BorderBrush="{StaticResource ErrorBrush}"
+                            AutomationProperties.Name="确认删除设备"
+                            Command="{Binding Network.RemoteDevices.ConfirmDeleteCommand}"
+                            Content="删除设备"
+                            FontWeight="SemiBold" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Border>
+</UserControl>

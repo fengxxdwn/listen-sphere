@@ -43,7 +43,7 @@
                     <TextBlock VerticalAlignment="Center"
                                FontSize="11"
                                Foreground="{StaticResource TextSecondaryBrush}"
-                               Text="{Binding Network.NetworkStatus}" />
+                               Text="{Binding Network.Transport.NetworkStatus}" />
                 </StackPanel>
             </Border>
             <Button AutomationProperties.Name="刷新应用"

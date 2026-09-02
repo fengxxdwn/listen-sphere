@@ -98,15 +98,15 @@
                                FontFamily="Consolas"
                                FontSize="22"
                                FontWeight="SemiBold"
-                               Text="{Binding Network.PairingCode}" />
+                               Text="{Binding Network.RemoteDevices.PairingCode}" />
                     <Button Margin="0,8,0,0"
                             HorizontalAlignment="Left"
-                            Command="{Binding Network.GenerateCodeCommand}"
-                            Content="{Binding Network.PairingCodeActionText}" />
+                            Command="{Binding Network.RemoteDevices.GenerateCodeCommand}"
+                            Content="{Binding Network.RemoteDevices.PairingCodeActionText}" />
                     <TextBlock Margin="0,8,0,0"
                                Foreground="{StaticResource TextSecondaryBrush}"
                                FontSize="11"
-                               Text="{Binding Network.PairingHint}"
+                               Text="{Binding Network.RemoteDevices.PairingHint}"
                                TextWrapping="Wrap" />
                 </StackPanel>
             </Border>

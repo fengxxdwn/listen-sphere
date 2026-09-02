@@ -39,156 +39,18 @@
 
         <views:SidebarView />
 
-        <views:ControllerDashboardView Grid.Column="1"
-                                       DataContext="{Binding Dashboard}" />
+        <ContentControl x:Name="DashboardContentHost"
+                        Grid.Column="1"
+                        Content="{Binding Dashboard}">
+            <ContentControl.ContentTemplate>
+                <DataTemplate>
+                    <views:ControllerDashboardView />
+                </DataTemplate>
+            </ContentControl.ContentTemplate>
+        </ContentControl>
 
-        <Border Grid.ColumnSpan="2"
-                Panel.ZIndex="20"
-                Background="#CC101827">
-            <Border.Style>
-                <Style TargetType="Border">
-                    <Setter Property="Visibility" Value="Collapsed" />
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding IsFirstRunGuideVisible}" Value="True">
-                            <Setter Property="Visibility" Value="Visible" />
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </Border.Style>
-            <Border Width="570"
-                    Padding="34"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Background="{StaticResource SurfaceRaisedBrush}"
-                    BorderBrush="{StaticResource StrokeBrush}"
-                    BorderThickness="1"
-                    CornerRadius="18">
-                <StackPanel>
-                    <TextBlock FontSize="25"
-                               FontWeight="SemiBold"
-                               Foreground="{StaticResource TextPrimaryBrush}"
-                               Text="欢迎使用聆界" />
-                    <TextBlock Margin="0,8,0,22"
-                               Foreground="{StaticResource TextSecondaryBrush}"
-                               Text="只需确认声音来源和最终输出，不需要理解专业音频参数。" />
-                    <TextBlock Margin="0,7" FontSize="15" Text="1  选择你的耳机或音箱" />
-                    <TextBlock Margin="0,7" FontSize="15" Text="2  播放声音，确认本机应用声道出现" />
-                    <TextBlock Margin="0,7" FontSize="15" Text="3  点击“启用发送连接”添加另一台设备" />
-                    <TextBlock Margin="0,7" FontSize="15" Text="4  调整音量并保存常用场景" />
-                    <TextBlock Margin="0,18,0,0"
-                               Foreground="{StaticResource WarningBrush}"
-                               Text="提示：双机网络验证可稍后补做；当前可先体验本机声道和场景。"
-                               TextWrapping="Wrap" />
-                    <Button Margin="0,24,0,0"
-                            HorizontalAlignment="Right"
-                            Style="{StaticResource PrimaryButton}"
-                            Command="{Binding FinishGuideCommand}"
-                            Content="进入聆界" />
-                </StackPanel>
-            </Border>
-        </Border>
-
-        <Border Grid.ColumnSpan="2"
-                Panel.ZIndex="30"
-                Background="#D90B0F15">
-            <Border.Style>
-                <Style TargetType="Border">
-                    <Setter Property="Visibility" Value="Collapsed" />
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding Network.IsDeleteConfirmationVisible}" Value="True">
-                            <Setter Property="Visibility" Value="Visible" />
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </Border.Style>
-            <Border Width="470"
-                    Padding="28"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Background="{StaticResource SurfaceRaisedBrush}"
-                    BorderBrush="#704048"
-                    BorderThickness="1"
-                    CornerRadius="16">
-                <Border.RenderTransform>
-                    <ScaleTransform ScaleX="1" ScaleY="1" />
-                </Border.RenderTransform>
-                <Border.Triggers>
-                    <EventTrigger RoutedEvent="Loaded">
-                        <BeginStoryboard>
-                            <Storyboard>
-                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                                 From="0"
-                                                 To="1"
-                                                 Duration="0:0:0.16" />
-                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
-                                                 From="0.97"
-                                                 To="1"
-                                                 Duration="0:0:0.18" />
-                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
-                                                 From="0.97"
-                                                 To="1"
-                                                 Duration="0:0:0.18" />
-                            </Storyboard>
-                        </BeginStoryboard>
-                    </EventTrigger>
-                </Border.Triggers>
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <StackPanel Orientation="Horizontal">
-                        <Border Width="42"
-                                Height="42"
-                                Background="#3A2229"
-                                CornerRadius="11">
-                            <TextBlock HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource IconText}"
-                                       FontSize="20"
-                                       Foreground="{StaticResource ErrorBrush}"
-                                       Text="&#xE74D;" />
-                        </Border>
-                        <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
-                            <TextBlock FontSize="20"
-                                       FontWeight="SemiBold"
-                                       Text="删除这台设备？" />
-                            <TextBlock Margin="0,3,0,0"
-                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                       Text="此操作会撤销设备信任" />
-                        </StackPanel>
-                    </StackPanel>
-                    <TextBlock Grid.Row="1"
-                               Margin="0,22,0,22"
-                               Foreground="{StaticResource TextSecondaryBrush}"
-                               LineHeight="23"
-                               TextWrapping="Wrap">
-                        <Run Text="设备“" />
-                        <Run FontWeight="SemiBold"
-                             Foreground="{StaticResource TextPrimaryBrush}"
-                             Text="{Binding Network.DeleteConfirmationDeviceName, Mode=OneWay}" />
-                        <Run Text="”将立即断开并从可信设备中移除。再次连接时，需要重新输入六位验证码。" />
-                    </TextBlock>
-                    <StackPanel Grid.Row="2"
-                                HorizontalAlignment="Right"
-                                Orientation="Horizontal">
-                        <Button MinWidth="86"
-                                AutomationProperties.Name="取消删除设备"
-                                Command="{Binding Network.CancelDeleteCommand}"
-                                Content="取消" />
-                        <Button MinWidth="106"
-                                Margin="10,0,0,0"
-                                Background="#B94E59"
-                                BorderBrush="{StaticResource ErrorBrush}"
-                                AutomationProperties.Name="确认删除设备"
-                                Command="{Binding Network.ConfirmDeleteCommand}"
-                                Content="删除设备"
-                                FontWeight="SemiBold" />
-                    </StackPanel>
-                </Grid>
-            </Border>
-        </Border>
+        <views:ControllerDialogHostView Grid.ColumnSpan="2"
+                                        Panel.ZIndex="20" />
         </Grid>
     </Grid>
 </Window>

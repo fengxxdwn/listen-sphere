@@ -4,37 +4,37 @@
     <StackPanel Grid.Column="2"
                 Margin="8,0"
                 VerticalAlignment="Center"
-                IsEnabled="{Binding Network.MicrophoneOutputEnabled}">
+                IsEnabled="{Binding Network.Microphone.MicrophoneOutputEnabled}">
         <Grid>
             <TextBlock Foreground="{StaticResource TextSecondaryBrush}"
                        FontSize="9"
                        Text="麦克风中枢总音量" />
             <TextBlock HorizontalAlignment="Right"
                        FontSize="10"
-                       Text="{Binding Network.MicrophoneOutputVolumePercent, StringFormat={}{0:F0}%}" />
+                       Text="{Binding Network.Microphone.MicrophoneOutputVolumePercent, StringFormat={}{0:F0}%}" />
         </Grid>
         <Slider Margin="0,5,0,0"
                 Minimum="0"
                 Maximum="100"
-                Value="{Binding Network.MicrophoneOutputVolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                Value="{Binding Network.Microphone.MicrophoneOutputVolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
         <CheckBox Margin="0,5,0,0"
                   Style="{StaticResource FluentSwitchCheckBox}"
-                  IsChecked="{Binding Network.MicrophoneMonitoringEnabled, Mode=TwoWay}"
+                  IsChecked="{Binding Network.Microphone.MicrophoneMonitoringEnabled, Mode=TwoWay}"
                   Content="监听到扬声器"
                   ToolTip="开启后手机麦克风会从下方选择的设备发声，可能产生回声或啸叫" />
         <ComboBox AutomationProperties.Name="麦克风监听播放设备"
                   Margin="0,5,0,0"
                   Height="28"
-                  ItemsSource="{Binding Network.PlaybackDevices}"
-                  SelectedIndex="{Binding Network.SelectedMicrophoneMonitoringDeviceIndex, Mode=TwoWay}"
-                  Tag="{Binding Network.SelectedMicrophoneMonitoringDeviceDisplayName}"
+                  ItemsSource="{Binding Network.Microphone.PlaybackDevices}"
+                  SelectedIndex="{Binding Network.Microphone.SelectedMicrophoneMonitoringDeviceIndex, Mode=TwoWay}"
+                  Tag="{Binding Network.Microphone.SelectedMicrophoneMonitoringDeviceDisplayName}"
                   DisplayMemberPath="DisplayName"
                   ToolTip="选择手机麦克风的监听播放设备">
             <ComboBox.Style>
                 <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
                     <Setter Property="IsEnabled" Value="False" />
                     <Style.Triggers>
-                        <DataTrigger Binding="{Binding Network.MicrophoneMonitoringEnabled}" Value="True">
+                        <DataTrigger Binding="{Binding Network.Microphone.MicrophoneMonitoringEnabled}" Value="True">
                             <Setter Property="IsEnabled" Value="True" />
                         </DataTrigger>
                     </Style.Triggers>

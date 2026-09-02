@@ -42,7 +42,7 @@
                                 <TextBlock Margin="9,0,0,0"
                                            VerticalAlignment="Center"
                                            Foreground="{StaticResource TextSecondaryBrush}"
-                                           Text="{Binding Network.NetworkStatus}"
+                                           Text="{Binding Network.Transport.NetworkStatus}"
                                            TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                             <Border Grid.Column="1" Margin="12,0" Background="#28313D" />
@@ -56,7 +56,7 @@
                                          Fill="{StaticResource SuccessBrush}" />
                                 <TextBlock VerticalAlignment="Center"
                                            FontWeight="SemiBold"
-                                           Text="{Binding Network.ActiveRemoteChannels.Count, StringFormat={}远程 {0} 个声道}" />
+                                           Text="{Binding Network.RemoteDevices.ActiveRemoteChannels.Count, StringFormat={}远程 {0} 个声道}" />
                             </StackPanel>
                             <Border Grid.Column="3" Margin="12,0" Background="#28313D" />
                             <StackPanel Grid.Column="4"
@@ -98,7 +98,7 @@
                             BorderBrush="Transparent"
                             BorderThickness="0"
                             CornerRadius="10"
-                            Visibility="{Binding Network.VisibleRemoteChannels.Count,
+                            Visibility="{Binding Network.RemoteDevices.VisibleRemoteChannels.Count,
                                 Converter={StaticResource ZeroCountToVisibilityConverter}}">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -109,7 +109,7 @@
                                 <TextBlock FontWeight="SemiBold" Text="当前连接方式没有设备" />
                                 <TextBlock Margin="0,4,0,0"
                                            Foreground="{StaticResource TextSecondaryBrush}"
-                                           Text="{Binding Network.EmptyTransportText}" />
+                                           Text="{Binding Network.Transport.EmptyTransportText}" />
                             </StackPanel>
                             <Button Grid.Column="1"
                                     VerticalAlignment="Center"
@@ -131,8 +131,8 @@
                         </Grid.ColumnDefinitions>
                         <RadioButton Margin="0,0,6,0"
                                      GroupName="RemoteTransport"
-                                     IsChecked="{Binding Network.IsWirelessSelected, Mode=OneWay}"
-                                     Command="{Binding Network.SelectWirelessCommand}"
+                                     IsChecked="{Binding Network.Transport.IsWirelessSelected, Mode=OneWay}"
+                                     Command="{Binding Network.Transport.SelectWirelessCommand}"
                                      Cursor="Hand">
                             <RadioButton.Template>
                                 <ControlTemplate TargetType="RadioButton">
@@ -159,21 +159,21 @@
                                         <TextBlock MaxWidth="275"
                                                    Foreground="{StaticResource TextSecondaryBrush}"
                                                    FontSize="9"
-                                                   Text="{Binding Network.WirelessIpAddressText}"
+                                                   Text="{Binding Network.Transport.WirelessIpAddressText}"
                                                    TextTrimming="CharacterEllipsis"
-                                                   ToolTip="{Binding Network.WirelessIpAddressText}" />
+                                                   ToolTip="{Binding Network.Transport.WirelessIpAddressText}" />
                                         <TextBlock Margin="12,0,0,0"
                                                    Foreground="{StaticResource TextSecondaryBrush}"
                                                    FontSize="9"
-                                                   Text="{Binding Network.WirelessPortText}" />
+                                                   Text="{Binding Network.Transport.WirelessPortText}" />
                                     </StackPanel>
                                 </StackPanel>
                             </StackPanel>
                         </RadioButton>
                         <RadioButton Grid.Column="1" Margin="3,0"
                                      GroupName="RemoteTransport"
-                                     IsChecked="{Binding Network.IsBluetoothSelected, Mode=OneWay}"
-                                     Command="{Binding Network.SelectBluetoothCommand}"
+                                     IsChecked="{Binding Network.Transport.IsBluetoothSelected, Mode=OneWay}"
+                                     Command="{Binding Network.Transport.SelectBluetoothCommand}"
                                      Cursor="Hand">
                             <RadioButton.Template>
                                 <ControlTemplate TargetType="RadioButton">
@@ -197,14 +197,14 @@
                                     <TextBlock FontWeight="SemiBold" Text="蓝牙" />
                                     <TextBlock Foreground="{StaticResource TextSecondaryBrush}"
                                                FontSize="10"
-                                               Text="{Binding Network.BluetoothStatus}" />
+                                               Text="{Binding Network.Transport.BluetoothStatus}" />
                                 </StackPanel>
                             </StackPanel>
                         </RadioButton>
                         <RadioButton Grid.Column="2" Margin="6,0,0,0"
                                      GroupName="RemoteTransport"
-                                     IsChecked="{Binding Network.IsWiredSelected, Mode=OneWay}"
-                                     Command="{Binding Network.SelectWiredCommand}"
+                                     IsChecked="{Binding Network.Transport.IsWiredSelected, Mode=OneWay}"
+                                     Command="{Binding Network.Transport.SelectWiredCommand}"
                                      Cursor="Hand">
                             <RadioButton.Template>
                                 <ControlTemplate TargetType="RadioButton">
@@ -226,12 +226,12 @@
                                 <TextBlock Style="{StaticResource IconText}" Foreground="{StaticResource TextSecondaryBrush}" Text="&#xE88E;" />
                                 <StackPanel Margin="9,0,0,0">
                                     <TextBlock FontWeight="SemiBold" Text="有线" />
-                                    <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Text="{Binding Network.UsbStatus}" />
+                                    <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Text="{Binding Network.Transport.UsbStatus}" />
                                 </StackPanel>
                             </StackPanel>
                         </RadioButton>
                     </Grid>
-                    <ItemsControl ItemsSource="{Binding Network.VisibleRemoteChannels}">
+                    <ItemsControl ItemsSource="{Binding Network.RemoteDevices.VisibleRemoteChannels}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Border MinHeight="70"

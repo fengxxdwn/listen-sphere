@@ -30,7 +30,7 @@
                            Text="输入来源 → 聆界 → Windows 录音设备" />
                 <CheckBox Margin="0,8,0,0"
                           Style="{StaticResource FluentSwitchCheckBox}"
-                          IsChecked="{Binding Network.MicrophoneOutputEnabled, Mode=TwoWay}"
+                          IsChecked="{Binding Network.Microphone.MicrophoneOutputEnabled, Mode=TwoWay}"
                           Content="启用麦克风中枢"
                           ToolTip="默认关闭；开启后才会捕获和转发麦克风声音" />
             </StackPanel>
@@ -41,8 +41,8 @@
                           Height="34"
                           VerticalAlignment="Center"
                           Style="{StaticResource MuteToggleButton}"
-                          IsEnabled="{Binding Network.MicrophoneOutputEnabled}"
-                          IsChecked="{Binding Network.MicrophoneOutputMuted, Mode=TwoWay}"
+                          IsEnabled="{Binding Network.Microphone.MicrophoneOutputEnabled}"
+                          IsChecked="{Binding Network.Microphone.MicrophoneOutputMuted, Mode=TwoWay}"
                           ToolTip="静音全部远程麦克风输出">
                 <TextBlock Style="{StaticResource IconText}"
                            FontSize="15"

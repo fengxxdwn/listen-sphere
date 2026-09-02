@@ -13,7 +13,7 @@ public partial class MicrophoneRoutingView : UserControl
     private void OpenSelectedMicrophoneSettings_Click(object sender, RoutedEventArgs args)
     {
         if (DataContext is not ControllerDashboardViewModel viewModel ||
-            viewModel.Network.SelectedComputerMicrophoneDevice is not { } device)
+            viewModel.Network.Microphone.SelectedComputerMicrophoneDevice is not { } device)
         {
             return;
         }

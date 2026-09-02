@@ -15,12 +15,12 @@
                 </StackPanel>
                 <ToggleButton Grid.Column="1" MinWidth="104" Height="31" Padding="9,0"
                               Style="{StaticResource MuteToggleButton}"
-                              IsChecked="{Binding Network.AutomaticRoutingEnabled, Mode=TwoWay}"
+                              IsChecked="{Binding Network.GroupMixer.AutomaticRoutingEnabled, Mode=TwoWay}"
                               Content="自动路由" />
             </Grid>
             <TextBlock Margin="0,5,0,12" Foreground="{StaticResource AccentBrush}" FontSize="10"
-                       Text="{Binding Network.AutomaticRoutingStatus}" />
-            <ItemsControl ItemsSource="{Binding Network.ActiveGroupBuses}">
+                       Text="{Binding Network.GroupMixer.AutomaticRoutingStatus}" />
+            <ItemsControl ItemsSource="{Binding Network.GroupMixer.ActiveGroupBuses}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border Margin="0,0,0,7" Padding="10,8" Background="#151D27"
@@ -61,7 +61,7 @@
                     <Style TargetType="TextBlock">
                         <Setter Property="Visibility" Value="Collapsed" />
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding Network.ActiveGroupBuses.Count}" Value="0">
+                            <DataTrigger Binding="{Binding Network.GroupMixer.ActiveGroupBuses.Count}" Value="0">
                                 <Setter Property="Visibility" Value="Visible" />
                             </DataTrigger>
                         </Style.Triggers>
@@ -75,7 +75,7 @@
                            Text="关闭单条规则不会删除记录" />
             </Grid>
             <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto">
-                <ItemsControl ItemsSource="{Binding Network.RoutingRules}">
+                <ItemsControl ItemsSource="{Binding Network.GroupMixer.RoutingRules}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Border Margin="0,0,0,6" Padding="9,7" Background="#151D27"
@@ -104,7 +104,7 @@
                 <TextBlock.Style>
                     <Style TargetType="TextBlock">
                         <Setter Property="Visibility" Value="Collapsed" />
-                        <Style.Triggers><DataTrigger Binding="{Binding Network.RoutingRules.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                        <Style.Triggers><DataTrigger Binding="{Binding Network.GroupMixer.RoutingRules.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
                     </Style>
                 </TextBlock.Style>
             </TextBlock>

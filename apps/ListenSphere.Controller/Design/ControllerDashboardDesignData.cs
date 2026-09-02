@@ -14,8 +14,8 @@ public sealed class ControllerDashboardDesignData
             64,
             false,
             "原声");
-        Network.ActiveRemoteChannels.Add(remote);
-        Network.VisibleRemoteChannels.Add(remote);
+        Network.RemoteDevices.ActiveRemoteChannels.Add(remote);
+        Network.RemoteDevices.VisibleRemoteChannels.Add(remote);
         Sessions.Add(new DashboardSessionDesignData(
             "播放器",
             "PID 2048",
@@ -35,6 +35,13 @@ public sealed class ControllerDashboardDesignData
 
 public sealed class DashboardNetworkDesignData
 {
+    public DashboardNetworkDesignData Transport => this;
+    public DashboardNetworkDesignData RemoteDevices => this;
+    public DashboardNetworkDesignData AudioOutput => this;
+    public DashboardNetworkDesignData LocalRouting => this;
+    public DashboardNetworkDesignData Microphone => this;
+    public DashboardNetworkDesignData RemoteAudio => this;
+    public DashboardNetworkDesignData GroupMixer => this;
     public string NetworkStatus { get; } = "无线网络 · 192.168.1.25:51493";
     public string EmptyTransportText { get; } = "选择连接方式后添加设备";
     public string WirelessIpAddressText { get; } = "IP 地址：192.168.1.25";

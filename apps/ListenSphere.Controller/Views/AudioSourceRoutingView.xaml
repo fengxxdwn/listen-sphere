@@ -34,14 +34,14 @@
                               HorizontalAlignment="Right"
                               Padding="7,0"
                               Style="{StaticResource MuteToggleButton}"
-                              IsChecked="{Binding Network.IsGroupMixerOpen, Mode=TwoWay}"
+                              IsChecked="{Binding Network.GroupMixer.IsGroupMixerOpen, Mode=TwoWay}"
                               ToolTip="打开分组混音器">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Style="{StaticResource IconText}" FontSize="13" Foreground="{StaticResource AccentBrush}" Text="&#xE9D2;" />
                         <TextBlock Margin="5,0,0,0" VerticalAlignment="Center" FontSize="10" Text="分组" />
                     </StackPanel>
                 </ToggleButton>
-                <Popup IsOpen="{Binding Network.IsGroupMixerOpen, Mode=TwoWay}"
+                <Popup IsOpen="{Binding Network.GroupMixer.IsGroupMixerOpen, Mode=TwoWay}"
                        PlacementTarget="{Binding ElementName=GroupMixerButton}"
                        Placement="Bottom"
                        HorizontalOffset="-425"
@@ -73,8 +73,8 @@
                                                   Width="36" Height="32"
                                                   VerticalAlignment="Center"
                                                   Style="{StaticResource MuteToggleButton}"
-                                                  IsChecked="{Binding Network.IsLocalSourceMuted, Mode=TwoWay}"
-                                                  ToolTip="{Binding Network.LocalSourceMuteButtonText}">
+                                                  IsChecked="{Binding Network.LocalRouting.IsLocalSourceMuted, Mode=TwoWay}"
+                                                  ToolTip="{Binding Network.LocalRouting.LocalSourceMuteButtonText}">
                                         <TextBlock HorizontalAlignment="Center" FontSize="15" Style="{StaticResource IconText}" Text="&#xE74F;" />
                                     </ToggleButton>
                                 </Grid>
@@ -83,12 +83,12 @@
                                     <Slider Minimum="0"
                                             Maximum="100"
                                             ToolTip="本机音源增益"
-                                            Value="{Binding Network.LocalSourceVolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                            Value="{Binding Network.LocalRouting.LocalSourceVolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                     <TextBlock Grid.Column="1"
                                                HorizontalAlignment="Right"
                                                VerticalAlignment="Center"
                                                FontSize="11"
-                                               Text="{Binding Network.LocalSourceVolumePercent, StringFormat={}{0:F0}%}" />
+                                               Text="{Binding Network.LocalRouting.LocalSourceVolumePercent, StringFormat={}{0:F0}%}" />
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -109,7 +109,7 @@
                         </Border>
                     </Grid>
 
-                    <ItemsControl ItemsSource="{Binding Network.ActiveRemoteChannels}">
+                    <ItemsControl ItemsSource="{Binding Network.RemoteDevices.ActiveRemoteChannels}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Grid Margin="0,2"
@@ -224,7 +224,7 @@
         <Grid Grid.Column="2" VerticalAlignment="Center">
             <ToggleButton x:Name="AudioDetailsButton"
                           Padding="12,10"
-                          IsChecked="{Binding Network.IsAudioDetailsOpen, Mode=TwoWay}"
+                          IsChecked="{Binding Network.RemoteAudio.IsAudioDetailsOpen, Mode=TwoWay}"
                           ToolTip="点击查看完整播放数据">
                 <ToggleButton.Template>
                     <ControlTemplate TargetType="ToggleButton">
@@ -245,12 +245,12 @@
                     <TextBlock Margin="0,5,0,0" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Text="点击查看完整播放数据" />
                 </StackPanel>
             </ToggleButton>
-            <Popup IsOpen="{Binding Network.IsAudioDetailsOpen, Mode=TwoWay}" PlacementTarget="{Binding ElementName=AudioDetailsButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+            <Popup IsOpen="{Binding Network.RemoteAudio.IsAudioDetailsOpen, Mode=TwoWay}" PlacementTarget="{Binding ElementName=AudioDetailsButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
                 <Border Width="390" Margin="0,8,0,0" Padding="15" Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1" CornerRadius="10">
                     <StackPanel>
                         <TextBlock FontSize="15" FontWeight="SemiBold" Text="汇聚与播放详情" />
-                        <TextBlock Margin="0,9,0,0" Foreground="{StaticResource TextPrimaryBrush}" Text="{Binding Network.AudioStatus}" TextWrapping="Wrap" />
-                        <TextBlock Margin="0,7,0,0" Foreground="{StaticResource ErrorBrush}" Text="{Binding Network.AudioErrorText}" TextWrapping="Wrap" />
+                        <TextBlock Margin="0,9,0,0" Foreground="{StaticResource TextPrimaryBrush}" Text="{Binding Network.RemoteAudio.AudioStatus}" TextWrapping="Wrap" />
+                        <TextBlock Margin="0,7,0,0" Foreground="{StaticResource ErrorBrush}" Text="{Binding Network.RemoteAudio.AudioErrorText}" TextWrapping="Wrap" />
                         <Separator Margin="0,10,0,8" Background="{StaticResource StrokeBrush}" />
                         <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Text="数据包含接收端口、混音路数、缺帧与丢包状态；点击卡片外部关闭。" TextWrapping="Wrap" />
                     </StackPanel>
@@ -287,16 +287,16 @@
                     <ColumnDefinition Width="36" />
                 </Grid.ColumnDefinitions>
                 <ComboBox Height="32"
-                          ItemsSource="{Binding Network.PlaybackDevices}"
-                          SelectedIndex="{Binding Network.SelectedPlaybackDeviceIndex, Mode=TwoWay}"
-                          Tag="{Binding Network.SelectedPlaybackDeviceDisplayName}"
+                          ItemsSource="{Binding Network.AudioOutput.PlaybackDevices}"
+                          SelectedIndex="{Binding Network.AudioOutput.SelectedPlaybackDeviceIndex, Mode=TwoWay}"
+                          Tag="{Binding Network.AudioOutput.SelectedPlaybackDeviceDisplayName}"
                           DisplayMemberPath="DisplayName" />
                 <Button Grid.Column="1"
                         Width="30"
                         Height="30"
                         HorizontalAlignment="Right"
                         AutomationProperties.Name="刷新播放设备"
-                        Command="{Binding Network.RefreshOutputsCommand}"
+                        Command="{Binding Network.AudioOutput.RefreshOutputsCommand}"
                         Style="{StaticResource IconButton}"
                         ToolTip="刷新播放设备">
                     <TextBlock Style="{StaticResource IconText}" Text="&#xE72C;" />
@@ -305,7 +305,7 @@
             <CheckBox Grid.Row="2"
                       Margin="0,7,0,0"
                       Style="{StaticResource FluentSwitchCheckBox}"
-                      IsChecked="{Binding Network.FollowSystemDefaultPlayback, Mode=TwoWay}"
+                      IsChecked="{Binding Network.AudioOutput.FollowSystemDefaultPlayback, Mode=TwoWay}"
                       Content="跟随 Windows 系统默认输出" />
             <Grid Grid.Row="3" Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
@@ -321,17 +321,17 @@
                 <Slider Grid.Column="1" Margin="9,0,6,0"
                         Minimum="0" Maximum="100"
                         ToolTip="当前 Windows 输出设备音量"
-                        Value="{Binding Network.MasterVolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        Value="{Binding Network.AudioOutput.MasterVolumePercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                 <TextBlock Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right"
-                           FontSize="10" Text="{Binding Network.MasterVolumePercent, StringFormat={}{0:F0}%}" />
+                           FontSize="10" Text="{Binding Network.AudioOutput.MasterVolumePercent, StringFormat={}{0:F0}%}" />
                 <ToggleButton Grid.Column="3" Width="32" Height="30" HorizontalAlignment="Right"
                               Style="{StaticResource MuteToggleButton}"
-                              IsChecked="{Binding Network.IsSystemMuted, Mode=TwoWay}"
-                              ToolTip="{Binding Network.SystemMuteButtonText}">
+                              IsChecked="{Binding Network.AudioOutput.IsSystemMuted, Mode=TwoWay}"
+                              ToolTip="{Binding Network.AudioOutput.SystemMuteButtonText}">
                     <TextBlock HorizontalAlignment="Center" FontSize="13" Style="{StaticResource IconText}" Text="&#xE74F;" />
                 </ToggleButton>
             </Grid>
-            <ItemsControl Grid.Row="4" Margin="0,8,0,0" ItemsSource="{Binding Network.AdditionalOutputs}">
+            <ItemsControl Grid.Row="4" Margin="0,8,0,0" ItemsSource="{Binding Network.AudioOutput.AdditionalOutputs}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border Margin="0,0,0,6" Padding="9,7"

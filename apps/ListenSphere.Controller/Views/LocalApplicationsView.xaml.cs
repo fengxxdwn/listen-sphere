@@ -56,7 +56,7 @@ public partial class LocalApplicationsView : UserControl
             return;
         }
 
-        await viewModel.Network.AddSecondaryOutputRouteAsync(
+        await viewModel.Network.LocalRouting.AddSecondaryOutputRouteAsync(
             session.RoutingChannelId,
             output.DeviceId);
     }

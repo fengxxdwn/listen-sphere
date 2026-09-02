@@ -5,7 +5,7 @@
     <StackPanel Grid.Column="1"
                 Margin="12,0"
                 VerticalAlignment="Center"
-                IsEnabled="{Binding Network.MicrophoneOutputEnabled}">
+                IsEnabled="{Binding Network.Microphone.MicrophoneOutputEnabled}">
         <TextBlock Margin="2,0,0,3"
                    Foreground="{StaticResource TextSecondaryBrush}"
                    FontSize="9"
@@ -17,9 +17,9 @@
             </Grid.ColumnDefinitions>
             <Grid Margin="0,0,6,0">
                 <ComboBox AutomationProperties.Name="Windows 默认麦克风输入"
-                          ItemsSource="{Binding Network.RecordingDevices}"
-                          SelectedIndex="{Binding Network.SelectedComputerMicrophoneDeviceIndex, Mode=TwoWay}"
-                          Tag="{Binding Network.SelectedComputerMicrophoneDeviceDisplayName}"
+                          ItemsSource="{Binding Network.Microphone.RecordingDevices}"
+                          SelectedIndex="{Binding Network.Microphone.SelectedComputerMicrophoneDeviceIndex, Mode=TwoWay}"
+                          Tag="{Binding Network.Microphone.SelectedComputerMicrophoneDeviceDisplayName}"
                           DisplayMemberPath="DisplayName"
                           ToolTip="选择 Windows 默认麦克风，并将其接入聆界麦克风输出链路" />
                 <Border IsHitTestVisible="False"
@@ -28,7 +28,7 @@
                         CacheMode="BitmapCache"
                         CornerRadius="7"
                         Opacity="0.035"
-                        local:AudioGlowBehavior.Level="{Binding Network.ComputerMicrophonePeakPercent}">
+                        local:AudioGlowBehavior.Level="{Binding Network.Microphone.ComputerMicrophonePeakPercent}">
                     <Border.Effect>
                         <DropShadowEffect BlurRadius="14"
                                           Color="#3F83FF"
@@ -46,7 +46,7 @@
                 <Button.Style>
                     <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding Network.SelectedComputerMicrophoneDevice}"
+                            <DataTrigger Binding="{Binding Network.Microphone.SelectedComputerMicrophoneDevice}"
                                          Value="{x:Null}">
                                 <Setter Property="IsEnabled" Value="False" />
                             </DataTrigger>
@@ -64,9 +64,9 @@
                    Text="输出到 Windows 录音设备" />
         <Grid Height="32">
             <ComboBox AutomationProperties.Name="Windows 录音输出设备"
-                      ItemsSource="{Binding Network.MicrophoneOutputDevices}"
-                      SelectedIndex="{Binding Network.SelectedMicrophoneOutputDeviceIndex, Mode=TwoWay}"
-                      Tag="{Binding Network.SelectedMicrophoneOutputDeviceDisplayName}"
+                      ItemsSource="{Binding Network.Microphone.MicrophoneOutputDevices}"
+                      SelectedIndex="{Binding Network.Microphone.SelectedMicrophoneOutputDeviceIndex, Mode=TwoWay}"
+                      Tag="{Binding Network.Microphone.SelectedMicrophoneOutputDeviceDisplayName}"
                       DisplayMemberPath="DisplayName" />
             <Border IsHitTestVisible="False"
                     BorderBrush="#4C8DFF"
@@ -74,7 +74,7 @@
                     CacheMode="BitmapCache"
                     CornerRadius="7"
                     Opacity="0.035"
-                    local:AudioGlowBehavior.Level="{Binding Network.MicrophoneOutputGlowLevel}">
+                    local:AudioGlowBehavior.Level="{Binding Network.Microphone.MicrophoneOutputGlowLevel}">
                 <Border.Effect>
                     <DropShadowEffect BlurRadius="14"
                                       Color="#3F83FF"
@@ -87,8 +87,8 @@
         <TextBlock Margin="2,5,0,0"
                    Foreground="{StaticResource TextSecondaryBrush}"
                    FontSize="9"
-                   Text="{Binding Network.MicrophoneOutputStatus}"
+                   Text="{Binding Network.Microphone.MicrophoneOutputStatus}"
                    TextTrimming="CharacterEllipsis"
-                   ToolTip="{Binding Network.MicrophoneOutputStatus}" />
+                   ToolTip="{Binding Network.Microphone.MicrophoneOutputStatus}" />
     </StackPanel>
 </UserControl>

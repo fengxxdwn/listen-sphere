@@ -50,7 +50,9 @@ public partial class AudioSourceRoutingView : UserControl
             return;
         }
 
-        await viewModel.Network.AddSecondaryOutputRouteAsync(channelId, target.DeviceId);
+        await viewModel.Network.LocalRouting.AddSecondaryOutputRouteAsync(
+            channelId,
+            target.DeviceId);
     }
 
     private async void AdditionalOutputRoute_RemoveClick(
@@ -67,7 +69,7 @@ public partial class AudioSourceRoutingView : UserControl
             return;
         }
 
-        await viewModel.Network.RemoveSecondaryOutputRouteAsync(
+        await viewModel.Network.LocalRouting.RemoveSecondaryOutputRouteAsync(
             route.ChannelId,
             route.DeviceId);
     }
