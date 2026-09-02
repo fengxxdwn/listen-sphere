@@ -17,12 +17,22 @@ namespace ListenSphere.Controller;
 
 public partial class App : Application
 {
+    private const string SingleInstanceName =
+        @"Local\ListenSphere.Controller.SingleInstance";
     private ServiceProvider? serviceProvider;
     private LocalDeviceIdentity? localIdentity;
+    private SingleInstanceGuard? singleInstance;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        singleInstance = SingleInstanceGuard.TryAcquire(SingleInstanceName);
+        if (singleInstance is null)
+        {
+            Shutdown();
+            return;
+        }
+
         string dataDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "ListenSphere",
@@ -89,6 +99,7 @@ public partial class App : Application
         Log.CloseAndFlush();
         serviceProvider?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         localIdentity?.Dispose();
+        singleInstance?.Dispose();
         base.OnExit(e);
     }
 

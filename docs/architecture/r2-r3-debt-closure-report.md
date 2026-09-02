@@ -69,11 +69,11 @@ Shell 的关闭流程先解除七个展示模型的属性订阅，再释放运�
 
 - `dotnet restore ListenSphere.sln`：通过。
 - `dotnet build ListenSphere.sln -c Release --no-restore -m:1`：0 警告、0 错误。
-- 全量 .NET：145/145 通过。
+- 全量 .NET：146/146 通过。
   - Architecture：7
   - Core：52
   - Protocol：14
-  - Windows Technical：72
+  - Windows Technical：73
 - 新增覆盖：
   - 七个 Network 子模型绑定路径门禁。
   - MainWindow ContentHost/Dialog Host 页面边界。
@@ -107,6 +107,13 @@ Shell 的关闭流程先解除七个展示模型的属性订阅，再释放运�
 协调器继续负责立即移除配置和快照，再异步释放播放路由；没有修改设置格式或音频行为。
 修复后的 Release 构建为 0 警告、0 错误，全量 .NET 145/145 通过。等待用户重新执行
 两条“本地声音”路由的删除验收。
+
+再次复验时发现同一 Release 路径存在两个 Controller 进程，两个实例同时读取并写入
+同一份 `settings.json`。其中一个窗口删除路由后，另一个旧实例可用过期快照再次保存，
+导致路由恢复并表现为“无法删除”。因此新增命名互斥量单实例保护：首个 Controller
+持有互斥量，后续重复启动立即退出，退出时可靠释放。实测连续启动两次仅保留首个
+进程；第二个进程立即退出。新增互斥、并发拒绝和释放后重启测试，修复后的 Release
+构建为 0 警告、0 错误，全量 .NET 146/146 通过。
 
 ## 已知风险
 
