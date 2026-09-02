@@ -378,6 +378,7 @@
                                                 <TextBlock Grid.Column="1" Margin="7,0" VerticalAlignment="Center" Foreground="{StaticResource SuccessBrush}" FontSize="9" Text="{Binding StatusText}" />
                                                 <Button Grid.Column="2" Width="28" Height="28"
                                                         AutomationProperties.Name="{Binding SourceName, StringFormat=从附加输出移除 {0}}"
+                                                        ClickMode="Press"
                                                         Command="{Binding RemoveCommand}"
                                                         Style="{StaticResource IconButton}"
                                                         ToolTip="取消此附加输出">

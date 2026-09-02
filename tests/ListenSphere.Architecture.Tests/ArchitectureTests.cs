@@ -232,13 +232,28 @@ public sealed class ArchitectureTests
             "ListenSphere.Controller",
             "Views",
             "AudioSourceRoutingView.xaml");
+        string localApplicationsViewPath = Path.Combine(
+            repository,
+            "apps",
+            "ListenSphere.Controller",
+            "Views",
+            "LocalApplicationsView.xaml");
         string codeBehindPath = viewPath + ".cs";
         string view = File.ReadAllText(viewPath);
+        string localApplicationsView = File.ReadAllText(localApplicationsViewPath);
         string codeBehind = File.ReadAllText(codeBehindPath);
 
         Assert.Contains(
             "{Binding RemoveCommand}",
             view,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ClickMode=\"Press\"",
+            view,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ClickMode=\"Press\"",
+            localApplicationsView,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "AdditionalOutputRoute_RemoveClick",

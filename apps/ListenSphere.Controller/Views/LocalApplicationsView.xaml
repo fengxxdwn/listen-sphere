@@ -235,7 +235,8 @@
                                                        Text="{Binding StatusText}" />
                                             <Button Grid.Column="2"
                                                     Width="26"
-                                                    Height="24"
+                                                    Height="28"
+                                                    ClickMode="Press"
                                                     Command="{Binding RemoveCommand}"
                                                     Style="{StaticResource IconButton}"
                                                     ToolTip="移除此附加输出">
