@@ -55,22 +55,4 @@ public partial class AudioSourceRoutingView : UserControl
             target.DeviceId);
     }
 
-    private async void AdditionalOutputRoute_RemoveClick(
-        object sender,
-        RoutedEventArgs args)
-    {
-        args.Handled = true;
-        if (sender is not Button
-            {
-                DataContext: AdditionalOutputRouteItemViewModel route
-            } ||
-            DataContext is not ControllerDashboardViewModel viewModel)
-        {
-            return;
-        }
-
-        await viewModel.Network.LocalRouting.RemoveSecondaryOutputRouteAsync(
-            route.ChannelId,
-            route.DeviceId);
-    }
 }

@@ -222,6 +222,34 @@ public sealed class ArchitectureTests
         }
     }
 
+    [Fact]
+    public void AdditionalOutputRemoval_BindsDirectlyToCardCommand()
+    {
+        string repository = FindRepository();
+        string viewPath = Path.Combine(
+            repository,
+            "apps",
+            "ListenSphere.Controller",
+            "Views",
+            "AudioSourceRoutingView.xaml");
+        string codeBehindPath = viewPath + ".cs";
+        string view = File.ReadAllText(viewPath);
+        string codeBehind = File.ReadAllText(codeBehindPath);
+
+        Assert.Contains(
+            "{Binding RemoveCommand}",
+            view,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AdditionalOutputRoute_RemoveClick",
+            view,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AdditionalOutputRoute_RemoveClick",
+            codeBehind,
+            StringComparison.Ordinal);
+    }
+
     private static string FindRepository()
     {
         string? repository = AppContext.BaseDirectory;

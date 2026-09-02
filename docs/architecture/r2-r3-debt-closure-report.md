@@ -69,11 +69,11 @@ Shell 的关闭流程先解除七个展示模型的属性订阅，再释放运�
 
 - `dotnet restore ListenSphere.sln`：通过。
 - `dotnet build ListenSphere.sln -c Release --no-restore -m:1`：0 警告、0 错误。
-- 全量 .NET：143/143 通过。
-  - Architecture：6
+- 全量 .NET：145/145 通过。
+  - Architecture：7
   - Core：52
   - Protocol：14
-  - Windows Technical：71
+  - Windows Technical：72
 - 新增覆盖：
   - 七个 Network 子模型绑定路径门禁。
   - MainWindow ContentHost/Dialog Host 页面边界。
@@ -81,6 +81,8 @@ Shell 的关闭流程先解除七个展示模型的属性订阅，再释放运�
   - Shell 小于 30 KB、卡片模型独立文件边界。
   - 命令对象转发。
   - 展示订阅解除、运行时只释放一次的关闭生命周期。
+  - 附加输出删除按钮必须直接绑定卡片 `RemoveCommand`。
+  - 删除命令必须原样转发稳定的 ChannelId 和 DeviceId。
 - Android（JDK 17、SDK 34、Gradle 8.10.2）：
   `assembleDebug testDebugUnitTest --no-daemon` 成功，25/25 通过，Debug APK 存在。
 - `git diff --check` 与 Git 索引卫生：提交前最终执行。
@@ -92,6 +94,19 @@ Shell 的关闭流程先解除七个展示模型的属性订阅，再释放运�
 - “刷新应用”“刷新播放设备”“导出诊断包”“启用麦克风中枢”均存在。
 - 初始化 8 秒后 Windows 默认麦克风保持单选，实际设备为 `Mic (MCHOSE V9 PRO)`。
 - 人工视觉与音频交互回归待用户验收；本分支在验收前不合并到 `main`。
+
+## 人工验收缺陷修复
+
+人工验收发现“本地声音”附加输出再次无法删除。当前设置仍保存两条路由，而最新日志
+没有对应的 `Removing secondary output route` 事件，证明点击没有进入协调器。
+
+根因是卡片已经持有稳定的 `RemoveCommand`，但 XAML 仍使用父视图 `Click` 事件，
+并依赖父级 DataContext 才能调用删除。展示层拆分后该路径可能提前返回。
+
+修复后删除按钮直接绑定当前卡片的 `RemoveCommand`，移除父视图 code-behind 事件。
+协调器继续负责立即移除配置和快照，再异步释放播放路由；没有修改设置格式或音频行为。
+修复后的 Release 构建为 0 警告、0 错误，全量 .NET 145/145 通过。等待用户重新执行
+两条“本地声音”路由的删除验收。
 
 ## 已知风险
 

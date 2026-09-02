@@ -9,6 +9,37 @@ namespace ListenSphere.Windows.TechnicalTests;
 public sealed class NetworkPresentationTests
 {
     [Fact]
+    public async Task AdditionalOutputRemoveCommand_ForwardsStableRouteIdentity()
+    {
+        Guid channelId = Guid.NewGuid();
+        const string DeviceId = "secondary-device";
+        Guid capturedChannelId = Guid.Empty;
+        string? capturedDeviceId = null;
+        var invoked = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var item = new AdditionalOutputRouteItemViewModel(
+            channelId,
+            DeviceId,
+            "本地声音",
+            true,
+            (removedChannelId, removedDeviceId) =>
+            {
+                capturedChannelId = removedChannelId;
+                capturedDeviceId = removedDeviceId;
+                invoked.SetResult();
+                return Task.CompletedTask;
+            });
+
+        item.RemoveCommand.Execute(null);
+        await invoked.Task.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(channelId, capturedChannelId);
+        Assert.Equal(DeviceId, capturedDeviceId);
+    }
+
+    [Fact]
     public async Task Commands_AreForwardedFromRuntimeThroughPresentationModels()
     {
         ControllerNetworkRuntime runtime = CreateRuntimeWithoutResources();
