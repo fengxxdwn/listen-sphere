@@ -16,7 +16,7 @@
                        Text="声音中枢" />
             <TextBlock Margin="0,3,0,0"
                        Foreground="{StaticResource TextSecondaryBrush}"
-                       Text="{Binding StatusText}" />
+                       Text="{Binding LocalSessions.StatusText}" />
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
             <Button Height="34"
@@ -47,7 +47,7 @@
                 </StackPanel>
             </Border>
             <Button AutomationProperties.Name="刷新应用"
-                    Command="{Binding RefreshCommand}"
+                    Command="{Binding LocalSessions.RefreshCommand}"
                     Style="{StaticResource IconButton}"
                     ToolTip="刷新应用列表">
                 <TextBlock Style="{StaticResource IconText}" Text="&#xE72C;" />

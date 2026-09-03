@@ -70,7 +70,7 @@
                                            Text="&#xE7F5;" />
                                 <TextBlock VerticalAlignment="Center"
                                            FontWeight="SemiBold"
-                                           Text="{Binding Sessions.Count, StringFormat={}本机 {0} 个会话}" />
+                                           Text="{Binding LocalSessions.Sessions.Count, StringFormat={}本机 {0} 个会话}" />
                             </StackPanel>
                         </Grid>
 
@@ -353,21 +353,21 @@
                                 <TextBlock Margin="0,4,0,0"
                                            Foreground="{StaticResource TextSecondaryBrush}"
                                            FontSize="11"
-                                           Text="{Binding DiagnosticStatusText}"
+                                           Text="{Binding Diagnostics.StatusText}"
                                            TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                             <Button Grid.Column="2"
                                     Margin="14,0,0,0"
                                     VerticalAlignment="Center"
                                     AutomationProperties.Name="导出诊断包"
-                                    Command="{Binding ExportDiagnosticsCommand}"
+                                    Command="{Binding Diagnostics.ExportCommand}"
                                     Content="导出诊断" />
                         </Grid>
                     </Border>
 
                     <TextBlock Margin="2,14,0,0"
                                Foreground="{StaticResource ErrorBrush}"
-                               Text="{Binding ErrorText}"
+                               Text="{Binding LocalSessions.ErrorText}"
                                TextWrapping="Wrap" />
                 </StackPanel>
             </ScrollViewer>

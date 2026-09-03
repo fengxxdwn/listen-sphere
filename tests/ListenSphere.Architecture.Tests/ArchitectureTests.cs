@@ -265,6 +265,56 @@ public sealed class ArchitectureTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void R4_ControllerShell_UsesDedicatedPresentationModelsAndServices()
+    {
+        string repository = FindRepository();
+        string controller = Path.Combine(
+            repository,
+            "apps",
+            "ListenSphere.Controller");
+        string shellPath = Path.Combine(controller, "ControllerViewModel.cs");
+        string presentation = Path.Combine(controller, "Presentation");
+        string services = Path.Combine(controller, "Services");
+
+        Assert.True(
+            new FileInfo(shellPath).Length < 25_000,
+            "ControllerViewModel must remain a small application shell.");
+        string shell = File.ReadAllText(shellPath);
+        Assert.DoesNotContain("class AudioSessionItemViewModel", shell, StringComparison.Ordinal);
+        Assert.DoesNotContain("OpenFileDialog", shell, StringComparison.Ordinal);
+        Assert.DoesNotContain("SaveFileDialog", shell, StringComparison.Ordinal);
+
+        foreach (string fileName in new[]
+                 {
+                     "SceneViewModel.cs",
+                     "DiagnosticsViewModel.cs",
+                     "FirstRunViewModel.cs",
+                     "LocalSessionsViewModel.cs"
+                 })
+        {
+            Assert.True(File.Exists(Path.Combine(presentation, fileName)), fileName);
+        }
+        foreach (string fileName in new[]
+                 {
+                     "SceneService.cs",
+                     "ScenePersistenceServices.cs",
+                     "ControllerSettingsCoordinator.cs"
+                 })
+        {
+            Assert.True(File.Exists(Path.Combine(services, fileName)), fileName);
+        }
+
+        string sidebar = File.ReadAllText(Path.Combine(controller, "Views", "SidebarView.xaml"));
+        string dashboard = File.ReadAllText(
+            Path.Combine(controller, "Views", "ControllerDashboardView.xaml"));
+        string firstRun = File.ReadAllText(
+            Path.Combine(controller, "Views", "FirstRunGuideDialogView.xaml"));
+        Assert.Contains("{Binding Scene.Scenes}", sidebar, StringComparison.Ordinal);
+        Assert.Contains("{Binding LocalSessions.Sessions.Count", dashboard, StringComparison.Ordinal);
+        Assert.Contains("{Binding Diagnostics.ExportCommand}", dashboard, StringComparison.Ordinal);
+        Assert.Contains("{Binding FirstRun.IsVisible}", firstRun, StringComparison.Ordinal);
+    }
     private static string FindRepository()
     {
         string? repository = AppContext.BaseDirectory;

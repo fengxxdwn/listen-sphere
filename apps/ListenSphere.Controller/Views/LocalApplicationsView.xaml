@@ -23,7 +23,7 @@
         BorderBrush="Transparent"
         BorderThickness="0"
         CornerRadius="10"
-        Visibility="{Binding Sessions.Count,
+        Visibility="{Binding LocalSessions.Sessions.Count,
             Converter={StaticResource ZeroCountToVisibilityConverter}}">
     <StackPanel>
         <TextBlock FontWeight="SemiBold" Text="当前没有应用正在播放声音" />
@@ -32,7 +32,7 @@
                    Text="播放游戏、音乐或视频后，对应应用会自动显示在这里。" />
     </StackPanel>
 </Border>
-<ItemsControl ItemsSource="{Binding Sessions}">
+<ItemsControl ItemsSource="{Binding LocalSessions.Sessions}">
     <ItemsControl.ItemTemplate>
         <DataTemplate>
             <Border MinHeight="70"

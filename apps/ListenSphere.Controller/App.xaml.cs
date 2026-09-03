@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using ListenSphere.Audio.Abstractions;
 using ListenSphere.Configuration;
+using ListenSphere.Controller.Services;
 using ListenSphere.Device;
 using ListenSphere.Diagnostics;
 using ListenSphere.Network;
@@ -77,6 +78,10 @@ public partial class App : Application
             .AddSingleton<BluetoothRfcommProbeHost>()
             .AddSingleton<UsbAccessoryHost>()
             .AddSingleton<IWindowsAudioSessionManager, WasapiAudioSessionManager>()
+            .AddSingleton<ControllerSettingsCoordinator>()
+            .AddSingleton<ISceneService, SceneService>()
+            .AddSingleton<ISceneSerializationService, SceneSerializationService>()
+            .AddSingleton<IFileDialogService, WpfFileDialogService>()
             .AddSingleton<ControllerViewModel>()
             .AddSingleton<MainWindow>()
             .BuildServiceProvider(new ServiceProviderOptions

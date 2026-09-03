@@ -6,7 +6,7 @@
             <Style TargetType="Border">
                 <Setter Property="Visibility" Value="Collapsed" />
                 <Style.Triggers>
-                    <DataTrigger Binding="{Binding IsFirstRunGuideVisible}" Value="True">
+                    <DataTrigger Binding="{Binding FirstRun.IsVisible}" Value="True">
                         <Setter Property="Visibility" Value="Visible" />
                     </DataTrigger>
                 </Style.Triggers>
@@ -39,7 +39,7 @@
                 <Button Margin="0,24,0,0"
                         HorizontalAlignment="Right"
                         Style="{StaticResource PrimaryButton}"
-                        Command="{Binding FinishGuideCommand}"
+                        Command="{Binding FirstRun.FinishCommand}"
                         Content="进入聆界" />
             </StackPanel>
         </Border>

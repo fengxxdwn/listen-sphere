@@ -16,7 +16,7 @@ public sealed class ControllerDashboardDesignData
             "原声");
         Network.RemoteDevices.ActiveRemoteChannels.Add(remote);
         Network.RemoteDevices.VisibleRemoteChannels.Add(remote);
-        Sessions.Add(new DashboardSessionDesignData(
+        LocalSessions.Sessions.Add(new DashboardSessionDesignData(
             "播放器",
             "PID 2048",
             "Windows 输出：默认扬声器",
@@ -26,11 +26,21 @@ public sealed class ControllerDashboardDesignData
     }
 
     public DashboardNetworkDesignData Network { get; } = new();
+    public DashboardLocalSessionsDesignData LocalSessions { get; } = new();
+    public DashboardDiagnosticsDesignData Diagnostics { get; } = new();
+}
+
+public sealed class DashboardLocalSessionsDesignData
+{
     public ObservableCollection<DashboardSessionDesignData> Sessions { get; } = [];
     public string StatusText { get; } = "音频设备与应用会话已就绪";
     public string ErrorText { get; } = string.Empty;
-    public string DiagnosticStatusText { get; } = "可导出脱敏诊断包";
-    public float LocalPeakPercent { get; } = 42;
+    public float PeakPercent { get; } = 42;
+}
+
+public sealed class DashboardDiagnosticsDesignData
+{
+    public string StatusText { get; } = "可导出脱敏诊断包";
 }
 
 public sealed class DashboardNetworkDesignData
@@ -55,9 +65,11 @@ public sealed class DashboardNetworkDesignData
     public string LocalSourceMuteButtonText { get; } = "静音";
     public float LocalSourceVolumePercent { get; } = 80;
     public ObservableCollection<DashboardRemoteChannelDesignData>
-        ActiveRemoteChannels { get; } = [];
+        ActiveRemoteChannels
+    { get; } = [];
     public ObservableCollection<DashboardRemoteChannelDesignData>
-        VisibleRemoteChannels { get; } = [];
+        VisibleRemoteChannels
+    { get; } = [];
     public ObservableCollection<DashboardOutputDesignData> AdditionalOutputs { get; } =
         [new("默认扬声器", "已接收 2 个音源", 62)];
 }
