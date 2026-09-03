@@ -97,7 +97,8 @@ public sealed class AudioSessionTests
                 volume,
                 previousMasterPercent: 100,
                 nextMasterPercent: 40,
-                restoreVolumePercent: volume))
+                restoreVolumePercent: volume,
+                out _))
             .ToArray();
 
         Assert.Equal([32f, 20f, 8f], scaled);
@@ -106,15 +107,24 @@ public sealed class AudioSessionTests
     }
 
     [Fact]
-    public void LocalSourceVolume_UsesSavedApplicationVolumeWhenRaisedFromZero()
+    public void LocalSourceVolume_RestoresEachApplicationAfterZeroRoundTrip()
     {
+        float reduced = LocalSessionsViewModel.ScaleVolumeProportionally(
+            currentVolumePercent: 63,
+            previousMasterPercent: 100,
+            nextMasterPercent: 0,
+            restoreVolumePercent: 0,
+            out float savedApplicationVolume);
         float restored = LocalSessionsViewModel.ScaleVolumeProportionally(
-            currentVolumePercent: 0,
+            currentVolumePercent: reduced,
             previousMasterPercent: 0,
-            nextMasterPercent: 50,
-            restoreVolumePercent: 70);
+            nextMasterPercent: 100,
+            restoreVolumePercent: savedApplicationVolume,
+            out _);
 
-        Assert.Equal(35, restored, 3);
+        Assert.Equal(0, reduced, 3);
+        Assert.Equal(63, savedApplicationVolume, 3);
+        Assert.Equal(63, restored, 3);
     }
 
     [Theory]

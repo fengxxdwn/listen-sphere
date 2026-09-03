@@ -15,6 +15,8 @@ public sealed class LocalSessionsViewModel : ObservableViewModel, IAsyncDisposab
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, float> localSessionBaseVolumes =
         new(StringComparer.Ordinal);
+    private readonly Dictionary<string, float> localApplicationBaseVolumes =
+        new(StringComparer.Ordinal);
     private readonly Dictionary<string, bool> localSessionBaseMutes =
         new(StringComparer.Ordinal);
     private string statusText = "正在读取 Windows 应用音频会话…";
@@ -147,20 +149,18 @@ public sealed class LocalSessionsViewModel : ObservableViewModel, IAsyncDisposab
         {
             foreach (AudioSessionItemViewModel session in Sessions)
             {
-                float restoreVolume = session.SessionIds
-                    .Select(sessionId =>
-                    {
-                        if (localSessionBaseVolumes.TryGetValue(sessionId, out float value))
-                        {
-                            return value;
-                        }
+                float restoreVolume = localApplicationBaseVolumes.GetValueOrDefault(
+                    session.ApplicationIdentityKey,
+                    session.VolumePercent);
+                session.VolumePercent = ScaleVolumeProportionally(
+                    session.VolumePercent,
+                    previousVolumePercent,
+                    nextVolumePercent,
+                    restoreVolume,
+                    out float applicationBaseVolume);
+                localApplicationBaseVolumes[session.ApplicationIdentityKey] =
+                    applicationBaseVolume;
 
-                        float fallback = session.VolumePercent;
-                        localSessionBaseVolumes[sessionId] = fallback;
-                        return fallback;
-                    })
-                    .DefaultIfEmpty(session.VolumePercent)
-                    .Average();
                 bool baseMuted = session.SessionIds
                     .Select(sessionId =>
                     {
@@ -175,12 +175,6 @@ public sealed class LocalSessionsViewModel : ObservableViewModel, IAsyncDisposab
                     })
                     .DefaultIfEmpty(session.IsMuted)
                     .All(value => value);
-
-                session.VolumePercent = ScaleVolumeProportionally(
-                    session.VolumePercent,
-                    previousVolumePercent,
-                    nextVolumePercent,
-                    restoreVolume);
                 session.IsMuted = baseMuted || network.IsLocalSourceMuted;
             }
         }
@@ -194,16 +188,15 @@ public sealed class LocalSessionsViewModel : ObservableViewModel, IAsyncDisposab
         float currentVolumePercent,
         float previousMasterPercent,
         float nextMasterPercent,
-        float restoreVolumePercent)
+        float restoreVolumePercent,
+        out float applicationBaseVolume)
     {
         float previous = Math.Clamp(previousMasterPercent, 0, 100);
         float next = Math.Clamp(nextMasterPercent, 0, 100);
-        if (previous > 0.001f)
-        {
-            return Math.Clamp(currentVolumePercent * next / previous, 0, 100);
-        }
-
-        return Math.Clamp(restoreVolumePercent * next / 100, 0, 100);
+        applicationBaseVolume = previous > 0.001f
+            ? Math.Clamp(currentVolumePercent * 100 / previous, 0, 100)
+            : Math.Clamp(restoreVolumePercent, 0, 100);
+        return Math.Clamp(applicationBaseVolume * next / 100, 0, 100);
     }
 
     private void OnMonitoringFailed(object? sender, AudioSessionMonitoringFailedEventArgs args) =>
@@ -251,6 +244,7 @@ public sealed class LocalSessionsViewModel : ObservableViewModel, IAsyncDisposab
             }
 
             Guid routingChannelId = Sessions[index].RoutingChannelId;
+            localApplicationBaseVolumes.Remove(Sessions[index].ApplicationIdentityKey);
             foreach (string sessionId in Sessions[index].SessionIds)
             {
                 CancelPendingVolume(sessionId);
@@ -286,6 +280,8 @@ public sealed class LocalSessionsViewModel : ObservableViewModel, IAsyncDisposab
                     QueueVolumeChange,
                     SetMute);
                 Sessions.Add(item);
+                localApplicationBaseVolumes[item.ApplicationIdentityKey] =
+                    representative.Volume * 100;
                 network.RegisterLocalApplicationSource(
                     item.RoutingChannelId,
                     item.ProcessId,
