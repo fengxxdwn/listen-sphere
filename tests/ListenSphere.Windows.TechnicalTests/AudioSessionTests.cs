@@ -1,5 +1,6 @@
 using ListenSphere.Windows.AudioSessions;
 using ListenSphere.Controller;
+using ListenSphere.Controller.Presentation;
 using Xunit;
 
 namespace ListenSphere.Windows.TechnicalTests;
@@ -84,6 +85,36 @@ public sealed class AudioSessionTests
         Assert.All(volumeRequests, request => Assert.Equal(0.8f, request.Volume, 3));
         Assert.Equal(2, muteRequests.Count);
         Assert.All(muteRequests, request => Assert.True(request.IsMuted));
+    }
+
+    [Fact]
+    public void LocalSourceVolume_PreservesApplicationRatiosWhenReduced()
+    {
+        float[] currentVolumes = [80, 50, 20];
+
+        float[] scaled = currentVolumes
+            .Select(volume => LocalSessionsViewModel.ScaleVolumeProportionally(
+                volume,
+                previousMasterPercent: 100,
+                nextMasterPercent: 40,
+                restoreVolumePercent: volume))
+            .ToArray();
+
+        Assert.Equal([32f, 20f, 8f], scaled);
+        Assert.Equal(currentVolumes[0] / currentVolumes[1], scaled[0] / scaled[1], 3);
+        Assert.Equal(currentVolumes[1] / currentVolumes[2], scaled[1] / scaled[2], 3);
+    }
+
+    [Fact]
+    public void LocalSourceVolume_UsesSavedApplicationVolumeWhenRaisedFromZero()
+    {
+        float restored = LocalSessionsViewModel.ScaleVolumeProportionally(
+            currentVolumePercent: 0,
+            previousMasterPercent: 0,
+            nextMasterPercent: 50,
+            restoreVolumePercent: 70);
+
+        Assert.Equal(35, restored, 3);
     }
 
     [Theory]

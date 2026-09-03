@@ -20,6 +20,7 @@ public sealed class LocalSessionsViewModel : ObservableViewModel, IAsyncDisposab
     private string statusText = "正在读取 Windows 应用音频会话…";
     private string errorText = string.Empty;
     private float peakPercent;
+    private float previousLocalSourceVolumePercent = 100;
     private bool applyingLocalSourceControl;
     private bool initialized;
     private bool disposed;
@@ -66,6 +67,7 @@ public sealed class LocalSessionsViewModel : ObservableViewModel, IAsyncDisposab
         }
 
         initialized = true;
+        previousLocalSourceVolumePercent = network.LocalSourceVolumePercent;
         network.AudioSettingsChanged += OnAudioSettingsChanged;
         network.LocalSourceControlChanged += OnLocalSourceControlChanged;
         sessionManager.SessionsChanged += OnSessionsChanged;
@@ -137,13 +139,15 @@ public sealed class LocalSessionsViewModel : ObservableViewModel, IAsyncDisposab
 
     private void OnLocalSourceControlChanged(object? sender, EventArgs args)
     {
+        float nextVolumePercent = network.LocalSourceVolumePercent;
+        float previousVolumePercent = previousLocalSourceVolumePercent;
+        previousLocalSourceVolumePercent = nextVolumePercent;
         applyingLocalSourceControl = true;
         try
         {
-            float gain = network.LocalSourceVolumePercent / 100;
             foreach (AudioSessionItemViewModel session in Sessions)
             {
-                float baseVolume = session.SessionIds
+                float restoreVolume = session.SessionIds
                     .Select(sessionId =>
                     {
                         if (localSessionBaseVolumes.TryGetValue(sessionId, out float value))
@@ -151,9 +155,7 @@ public sealed class LocalSessionsViewModel : ObservableViewModel, IAsyncDisposab
                             return value;
                         }
 
-                        float fallback = gain > 0.001f
-                            ? Math.Clamp(session.VolumePercent / gain, 0, 100)
-                            : session.VolumePercent;
+                        float fallback = session.VolumePercent;
                         localSessionBaseVolumes[sessionId] = fallback;
                         return fallback;
                     })
@@ -174,7 +176,11 @@ public sealed class LocalSessionsViewModel : ObservableViewModel, IAsyncDisposab
                     .DefaultIfEmpty(session.IsMuted)
                     .All(value => value);
 
-                session.VolumePercent = baseVolume * gain;
+                session.VolumePercent = ScaleVolumeProportionally(
+                    session.VolumePercent,
+                    previousVolumePercent,
+                    nextVolumePercent,
+                    restoreVolume);
                 session.IsMuted = baseMuted || network.IsLocalSourceMuted;
             }
         }
@@ -182,6 +188,22 @@ public sealed class LocalSessionsViewModel : ObservableViewModel, IAsyncDisposab
         {
             applyingLocalSourceControl = false;
         }
+    }
+
+    internal static float ScaleVolumeProportionally(
+        float currentVolumePercent,
+        float previousMasterPercent,
+        float nextMasterPercent,
+        float restoreVolumePercent)
+    {
+        float previous = Math.Clamp(previousMasterPercent, 0, 100);
+        float next = Math.Clamp(nextMasterPercent, 0, 100);
+        if (previous > 0.001f)
+        {
+            return Math.Clamp(currentVolumePercent * next / previous, 0, 100);
+        }
+
+        return Math.Clamp(restoreVolumePercent * next / 100, 0, 100);
     }
 
     private void OnMonitoringFailed(object? sender, AudioSessionMonitoringFailedEventArgs args) =>
