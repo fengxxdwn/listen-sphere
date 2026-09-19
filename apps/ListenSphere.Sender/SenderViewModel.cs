@@ -189,6 +189,8 @@ public sealed class SenderViewModel : INotifyPropertyChanged, IAsyncDisposable
             await sessionManager.GetSessionsAsync(CancellationToken.None));
         await sessionManager.StartMonitoringAsync(CancellationToken.None);
         loadingPreferences = false;
+        if (settingsStore is JsonSettingsStore { CompatibilityWarning: { } warning })
+            ErrorText = warning;
     }
 
     public async ValueTask DisposeAsync()

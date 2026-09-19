@@ -17,6 +17,8 @@ public sealed class ControllerSettingsCoordinator(ISettingsStore settingsStore) 
     public event EventHandler<string>? SaveFailed;
 
     public ListenSphereSettings Current { get; private set; } = new();
+    public string? CompatibilityWarning =>
+        settingsStore is JsonSettingsStore json ? json.CompatibilityWarning : null;
     public string? RecoveryPath =>
         settingsStore is JsonSettingsStore json ? json.LastRecoveryPath : null;
 

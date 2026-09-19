@@ -111,6 +111,8 @@ public sealed class ControllerViewModel : ObservableViewModel, IAsyncDisposable
             settings.MicrophoneOutputEnabled,
             settings.ComputerMicrophoneDeviceId);
         await LocalSessions.InitializeAsync();
+        if (settingsCoordinator.CompatibilityWarning is { } warning)
+            LocalSessions.ReportError($"设置文件：{warning}");
     }
 
     private ListenSphereSettings CaptureSettings(ListenSphereSettings current) => current with

@@ -11,6 +11,9 @@ public sealed class JsonSettingsStore(string path) : ISettingsStore
     };
     private readonly SemaphoreSlim gate = new(1, 1);
 
+    private readonly SettingsMigrationPipeline migrations = new();
+    public string? CompatibilityWarning { get; private set; }
+
     public string? LastRecoveryPath { get; private set; }
 
     public async ValueTask<ListenSphereSettings> LoadAsync(
@@ -19,6 +22,8 @@ public sealed class JsonSettingsStore(string path) : ISettingsStore
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            LastRecoveryPath = null;
+            CompatibilityWarning = null;
             if (!File.Exists(path))
             {
                 return new ListenSphereSettings();
@@ -29,7 +34,12 @@ public sealed class JsonSettingsStore(string path) : ISettingsStore
                 ListenSphereSettings settings = await ReadExistingAsync(cancellationToken)
                     .ConfigureAwait(false);
                 LastRecoveryPath = null;
-                return Normalize(settings);
+                return Prepare(settings);
+            }
+            catch (UnsupportedSettingsVersionException exception)
+            {
+                CompatibilityWarning = exception.Message;
+                return new ListenSphereSettings();
             }
             catch (Exception exception) when (
                 exception is JsonException or InvalidDataException or NotSupportedException)
@@ -57,18 +67,25 @@ public sealed class JsonSettingsStore(string path) : ISettingsStore
             FileShare.Read,
             4096,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
-        ListenSphereSettings settings =
-            await JsonSerializer.DeserializeAsync<ListenSphereSettings>(
-                stream,
-                SerializerOptions,
-                cancellationToken).ConfigureAwait(false) ??
-            throw new InvalidDataException("设置文件内容为空。");
-        if (settings.Version <= 0 || settings.Version > ListenSphereSettings.CurrentVersion)
+        using JsonDocument document = await JsonDocument.ParseAsync(
+            stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("设置文件必须是 JSON 对象。");
+        int version = 0;
+        foreach (JsonProperty property in document.RootElement.EnumerateObject())
         {
-            throw new InvalidDataException($"不支持的设置版本：{settings.Version}。");
+            if (string.Equals(property.Name, "version", StringComparison.OrdinalIgnoreCase))
+                {
+                if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out version))
+                    throw new JsonException("设置版本必须是整数。");
+            }
         }
-
-        return settings;
+        // Inspect the envelope before decoding fields: future schemas may change types.
+        if (version < SettingsMigrationPipeline.MinimumVersion ||
+            version > ListenSphereSettings.CurrentVersion)
+            throw new UnsupportedSettingsVersionException(version);
+        return document.RootElement.Deserialize<ListenSphereSettings>(
+            SerializerOptions) ?? throw new InvalidDataException("设置文件内容为空。");
     }
 
     public async ValueTask SaveAsync(
@@ -86,10 +103,19 @@ public sealed class JsonSettingsStore(string path) : ISettingsStore
         string temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
         try
         {
-            ListenSphereSettings normalized = Normalize(settings) with
+            if (CompatibilityWarning is not null)
+                return;
+            // Protect unsupported files even if Save is called before Load.
+            if (File.Exists(path))
             {
-                Version = ListenSphereSettings.CurrentVersion
-            };
+                try { migrations.Migrate(await ReadExistingAsync(cancellationToken).ConfigureAwait(false)); }
+                catch (UnsupportedSettingsVersionException exception)
+                {
+                    CompatibilityWarning = exception.Message;
+                    return;
+                }
+            }
+            ListenSphereSettings normalized = Prepare(settings);
             await using (FileStream stream = new(
                 temporaryPath,
                 FileMode.CreateNew,
@@ -119,21 +145,33 @@ public sealed class JsonSettingsStore(string path) : ISettingsStore
         }
     }
 
+    private ListenSphereSettings Prepare(ListenSphereSettings settings)
+    {
+        ListenSphereSettings normalized = Normalize(migrations.Migrate(settings));
+        // Validate every numeric field before writing/replacing any file.
+        try { JsonSerializer.SerializeToUtf8Bytes(normalized, SerializerOptions); }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidDataException("设置包含非法数值。", exception);
+        }
+        return normalized;
+    }
+
     private static ListenSphereSettings Normalize(ListenSphereSettings settings) => settings with
     {
         MasterVolume = Math.Clamp(settings.MasterVolume, 0f, 1f),
         LocalSourceVolume = Math.Clamp(settings.LocalSourceVolume, 0f, 1f),
         Scenes = (settings.Scenes ?? [])
-            .Where(scene => scene.SceneId != Guid.Empty && !string.IsNullOrWhiteSpace(scene.Name))
+            .Where(scene => scene is not null && scene.SceneId != Guid.Empty && !string.IsNullOrWhiteSpace(scene.Name))
             .Select(scene => scene with
             {
                 Name = scene.Name.Trim(),
                 MasterVolume = Math.Clamp(scene.MasterVolume, 0f, 1f),
                 Channels = (scene.Channels ?? [])
-                    .Where(channel => channel.ChannelId != Guid.Empty)
+                    .Where(channel => channel is not null && channel.ChannelId != Guid.Empty)
                     .Select(channel => channel with
                     {
-                        DisplayName = channel.DisplayName.Trim(),
+                        DisplayName = channel.DisplayName?.Trim() ?? "未命名声道",
                         Volume = Math.Clamp(channel.Volume, 0f, 1f),
                         EqualizerPreset = string.IsNullOrWhiteSpace(channel.EqualizerPreset)
                             ? "原声"
@@ -152,16 +190,10 @@ public sealed class JsonSettingsStore(string path) : ISettingsStore
                         CompressorRatio = Math.Clamp(channel.CompressorRatio, 1f, 20f),
                         LimiterCeilingDb = Math.Clamp(channel.LimiterCeilingDb, -12f, -0.1f),
                         VoiceDuckingReductionDb = Math.Clamp(channel.VoiceDuckingReductionDb, 0f, 30f)
-                        ,IsVoiceDuckingTrigger = settings.Version < 11
-                            ? string.Equals(channel.ChannelGroup, "语音", StringComparison.Ordinal)
-                            : channel.IsVoiceDuckingTrigger
-                        ,IsVoiceDuckingTarget = settings.Version < 11
-                            ? channel.ChannelGroup is "游戏" or "媒体"
-                            : channel.IsVoiceDuckingTarget
                     })
                     .ToArray(),
                 GroupBuses = (scene.GroupBuses ?? [])
-                    .Where(group => !string.IsNullOrWhiteSpace(group.Name))
+                    .Where(group => group is not null && !string.IsNullOrWhiteSpace(group.Name))
                     .Select(group => group with
                     {
                         Name = group.Name.Trim(),
@@ -201,7 +233,7 @@ public sealed class JsonSettingsStore(string path) : ISettingsStore
         MicrophoneOutputVolume = Math.Clamp(settings.MicrophoneOutputVolume, 0f, 1f),
         AudioRoutingRules = (settings.AudioRoutingRules ?? [])
             .Where(rule =>
-                rule.RuleId != Guid.Empty &&
+                rule is not null && rule.RuleId != Guid.Empty &&
                 !string.IsNullOrWhiteSpace(rule.Name) &&
                 !string.IsNullOrWhiteSpace(rule.SourcePattern) &&
                 !string.IsNullOrWhiteSpace(rule.TargetGroup))
@@ -224,7 +256,7 @@ public sealed class JsonSettingsStore(string path) : ISettingsStore
             .Take(128)
             .ToArray(),
         ChannelLayouts = (settings.ChannelLayouts ?? [])
-            .Where(layout => layout.ChannelId != Guid.Empty)
+            .Where(layout => layout is not null && layout.ChannelId != Guid.Empty)
             .GroupBy(layout => layout.ChannelId)
             .Select(group => group.First() with
             {
@@ -235,7 +267,7 @@ public sealed class JsonSettingsStore(string path) : ISettingsStore
             .Take(256)
             .ToArray(),
         AudioOutputRoutes = (settings.AudioOutputRoutes ?? [])
-            .Where(route => route.ChannelId != Guid.Empty && !string.IsNullOrWhiteSpace(route.DeviceId))
+            .Where(route => route is not null && route.ChannelId != Guid.Empty && !string.IsNullOrWhiteSpace(route.DeviceId))
             .Select(route => route with
             {
                 DeviceId = route.DeviceId.Trim(),
