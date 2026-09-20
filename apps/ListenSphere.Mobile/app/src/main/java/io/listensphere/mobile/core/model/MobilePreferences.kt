@@ -1,6 +1,7 @@
 package io.listensphere.mobile.core.model
 
 import android.content.Context
+import android.content.SharedPreferences
 import java.util.UUID
 
 data class MobilePreferenceSnapshot(
@@ -17,13 +18,14 @@ data class MobilePreferenceSnapshot(
     val bluetoothControllerIds: Map<String, UUID> = emptyMap(),
 )
 
-class MobilePreferences(context: Context) {
+class MobilePreferences internal constructor(private val preferences: SharedPreferences) {
+    constructor(context: Context) : this(context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE))
     companion object {
         internal const val CURRENT_SCHEMA_VERSION = 2
         private const val FILE_NAME = "listensphere-mobile"
     }
 
-    private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+
 
     fun load(): MobilePreferenceSnapshot {
         val schemaVersion = preferences.getInt("schema_version", 0)

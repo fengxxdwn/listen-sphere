@@ -1,64 +1,55 @@
 package io.listensphere.mobile.ui
 
-import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
+import android.Manifest
 import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import io.listensphere.mobile.core.discovery.AndroidControllerDiscovery
-import io.listensphere.mobile.core.discovery.AndroidBluetoothDiscovery
-import io.listensphere.mobile.core.model.BluetoothPeer
 import io.listensphere.mobile.core.model.AndroidCodecCapabilityDetector
 import io.listensphere.mobile.core.model.BluetoothChannelMode
 import io.listensphere.mobile.core.model.BluetoothCodecChoice
 import io.listensphere.mobile.core.model.BluetoothControllerCapabilities
+import io.listensphere.mobile.core.model.BluetoothPeer
 import io.listensphere.mobile.core.model.BluetoothStreamCodec
-import io.listensphere.mobile.core.model.CaptureKind
 import io.listensphere.mobile.core.model.ControllerEndpoint
-import io.listensphere.mobile.core.model.MobilePreferenceSnapshot
+import io.listensphere.mobile.core.model.describeConnectionError
 import io.listensphere.mobile.core.model.MobilePreferences
-import io.listensphere.mobile.core.model.RecentConnection
+import io.listensphere.mobile.core.model.MobilePreferenceSnapshot
 import io.listensphere.mobile.core.model.RuntimeReadinessState
 import io.listensphere.mobile.core.model.StreamPhase
 import io.listensphere.mobile.core.model.TransportMode
-import io.listensphere.mobile.core.model.describeConnectionError
-import io.listensphere.mobile.core.network.BluetoothRfcommProbeClient
-import io.listensphere.mobile.core.usb.AndroidUsbAccessoryManager
 import io.listensphere.mobile.core.usb.UsbAccessoryState
 import io.listensphere.mobile.service.AudioStreamingService
+import java.net.InetAddress
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.net.InetAddress
-import java.util.UUID
 
 class MobileViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = MobilePreferences(application)
     private val savedPreferences = preferences.load()
-    private val discovery = AndroidControllerDiscovery(application)
-    private val bluetoothDiscovery = AndroidBluetoothDiscovery(application)
-    private val bluetoothProbe = BluetoothRfcommProbeClient(application)
-    private val usbAccessoryManager = AndroidUsbAccessoryManager(application)
-    val controllers: StateFlow<List<ControllerEndpoint>> = discovery.controllers
+    private val connections = MobileConnectionCoordinator(application)
+    val controllers: StateFlow<List<ControllerEndpoint>> = connections.controllers
+    val streamStatus = AudioStreamingService.status
     private val mutableBluetoothControllerIds =
         MutableStateFlow(savedPreferences.bluetoothControllerIds)
     val bluetoothPeers: StateFlow<List<BluetoothPeer>> = combine(
-        bluetoothDiscovery.peers,
+        connections.bluetoothPeers,
         mutableBluetoothControllerIds,
     ) { peers, associations ->
         peers.map { peer -> peer.copy(controllerId = associations[peer.stableKey]) }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val bluetoothDiscoveryStatus: StateFlow<String> = bluetoothDiscovery.status
+    val bluetoothDiscoveryStatus: StateFlow<String> = connections.bluetoothStatus
 
     private val mutableSelectedKey =
         MutableStateFlow(savedPreferences.selectedControllerKey)
@@ -81,7 +72,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application) 
     val manualHost = MutableStateFlow(savedPreferences.manualHost)
     val manualPort = MutableStateFlow(savedPreferences.manualPort)
     val usbCompatibilityMode = MutableStateFlow(savedPreferences.usbCompatibilityMode)
-    val usbAccessoryState = MutableStateFlow(usbAccessoryManager.state())
+    val usbAccessoryState = MutableStateFlow(connections.usbState())
     val captureKind = MutableStateFlow(savedPreferences.captureKind)
     val transportMode = MutableStateFlow(savedPreferences.transportMode)
     val recentConnections = MutableStateFlow(preferences.loadRecentConnections())
@@ -89,8 +80,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application) 
     private var lastRecordedConnection: Pair<TransportMode, String>? = null
 
     init {
-        discovery.start()
-        bluetoothDiscovery.refresh()
+        connections.start()
         viewModelScope.launch {
             controllers.collect { values ->
                 if (mutableSelectedKey.value == null && values.isNotEmpty()) {
@@ -140,8 +130,8 @@ class MobileViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun refreshRuntimeState() {
-        discovery.refresh()
-        bluetoothDiscovery.refresh()
+        connections.refreshDiscovery()
+        connections.refreshBluetooth()
         refreshUsbAccessoryState()
         runtimeReadiness.value = readRuntimeReadiness()
     }
@@ -194,7 +184,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun refreshDiscovery() {
-        discovery.refresh()
+        connections.refreshDiscovery()
     }
 
     fun selectTransportMode(mode: TransportMode) {
@@ -207,7 +197,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun refreshUsbAccessoryState() {
-        usbAccessoryState.value = usbAccessoryManager.state()
+        usbAccessoryState.value = connections.usbState()
     }
 
     fun updateUsbAccessoryState(state: UsbAccessoryState) {
@@ -238,7 +228,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun refreshBluetoothPeers() {
-        bluetoothDiscovery.refresh()
+        connections.refreshBluetooth()
     }
 
     fun selectedBluetoothPeer(): BluetoothPeer? = bluetoothPeers.value.firstOrNull {
@@ -255,7 +245,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application) 
         bluetoothProbeRunning.value = true
         bluetoothProbeStatus.value = "正在连接 ${peer.displayName} 的 ListenSphere 服务…"
         try {
-            val result = bluetoothProbe.probe(peer)
+            val result = connections.probe(peer)
             result.controllerId?.let { controllerId ->
                 mutableBluetoothControllerIds.value =
                     mutableBluetoothControllerIds.value + (peer.stableKey to controllerId)
@@ -335,7 +325,7 @@ class MobileViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     override fun onCleared() {
-        discovery.close()
+        connections.close()
         super.onCleared()
     }
 }
