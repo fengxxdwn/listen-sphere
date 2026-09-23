@@ -309,7 +309,7 @@ internal sealed class RemoteAudioCoordinator : IAsyncDisposable
         if (result.RouteToMainMixer)
         {
             mixer.RegisterStream(sessionId, preferredStartupFrames);
-            mixer.Enqueue(sessionId, pcm);
+            mixer.Enqueue(sessionId, pcm, timestamp);
         }
 
         if (result.Peak is float peak && ShouldPublishMeter(sessionId))
@@ -342,28 +342,33 @@ internal sealed class RemoteAudioCoordinator : IAsyncDisposable
         var mixedPcm = new byte[FloatStereoFrameBytes];
         ulong timestamp = 0;
         long ticks = 0;
+        var scheduler = new PlayoutFrameScheduler(new StopwatchPlayoutClock(), TimeSpan.FromMilliseconds(10));
         try
         {
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(10));
             while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
             {
-                if (mixer.TryMixNext(mixedPcm))
+                int due = scheduler.TakeDueFrames();
+                for (int catchUp = 0; catchUp < due; catchUp++)
                 {
-                    limiter.Process(mixedPcm);
-                    await runtime.WritePlaybackAsync(
-                        new AudioFrame(
-                            mixedPcm,
-                            AudioFormat.Default,
-                            SamplesPerChannel,
-                            timestamp),
-                        cancellationToken).ConfigureAwait(false);
-                }
+                    if (mixer.TryMixNext(mixedPcm))
+                    {
+                        limiter.Process(mixedPcm);
+                        await runtime.WritePlaybackAsync(
+                            new AudioFrame(
+                                mixedPcm,
+                                AudioFormat.Default,
+                                SamplesPerChannel,
+                                timestamp),
+                            cancellationToken).ConfigureAwait(false);
+                    }
 
-                timestamp += SamplesPerChannel;
-                ticks++;
-                if (ticks % 100 == 0)
-                {
-                    PublishSnapshot();
+                    timestamp += SamplesPerChannel;
+                    ticks++;
+                    if (ticks % 100 == 0)
+                    {
+                        PublishSnapshot();
+                    }
                 }
             }
         }

@@ -251,9 +251,9 @@ public sealed class CoreContractTests
 
         Assert.Equal(BufferCorrection.RecordUnderrun, controller.EvaluateBuffer(0));
         Assert.Equal(BufferCorrection.None, controller.EvaluateBuffer(60));
-        Assert.Equal(BufferCorrection.DropFrame, controller.EvaluateBuffer(101));
+        Assert.Equal(BufferCorrection.DropFrame, controller.EvaluateBuffer(181));
         Assert.Equal(0, controller.ObserveClock(0, TimeSpan.Zero));
-        double drift = controller.ObserveClock(48_048, TimeSpan.FromSeconds(1));
+        double drift = 0; for (int second = 1; second <= 120; second++) drift = controller.ObserveClock((ulong)second * 48_048, TimeSpan.FromSeconds(second));
         Assert.InRange(drift, 999, 1_001);
     }
 

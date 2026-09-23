@@ -1,3 +1,4 @@
+using ListenSphere.Audio.Abstractions;
 using System.Runtime.InteropServices;
 
 namespace ListenSphere.Audio.Engine;
@@ -17,9 +18,10 @@ public sealed class RemotePcmMixer(
     int frameBytes,
     int startupFrames = 2,
     int maximumFrames = 12,
-    bool hardClipOutput = true)
+    bool hardClipOutput = true, IPlayoutClock? playoutClock = null)
 {
     private readonly object gate = new();
+    private readonly IPlayoutClock clock = playoutClock ?? new StopwatchPlayoutClock();
     private readonly Dictionary<Guid, StreamBuffer> streams = [];
     private long mixedFrames;
     private long streamUnderflows;
@@ -38,7 +40,7 @@ public sealed class RemotePcmMixer(
                     streamOverflows,
                     clippedSamples,
                     streams.Count,
-                    streams.Values.Sum(stream => stream.Frames.Count));
+                    streams.Values.Sum(stream => stream.Adaptive?.BufferedFrames ?? stream.Frames.Count));
             }
         }
     }
@@ -57,6 +59,7 @@ public sealed class RemotePcmMixer(
                 if (requestedStartup > existing.StartupFrames)
                 {
                     existing.StartupFrames = requestedStartup;
+                    if (existing.Adaptive is not null) existing.Adaptive.StartupFrames = requestedStartup;
                     if (existing.Frames.Count < requestedStartup)
                     {
                         existing.Started = false;
@@ -77,7 +80,12 @@ public sealed class RemotePcmMixer(
         }
     }
 
-    public void Enqueue(Guid sessionId, byte[] pcm)
+    public void Enqueue(Guid sessionId, byte[] pcm) => EnqueueCore(sessionId, pcm, null);
+
+    /// <summary>Enables per-source clock correction for timestamped remote audio.</summary>
+    public void Enqueue(Guid sessionId, byte[] pcm, ulong timestamp) => EnqueueCore(sessionId, pcm, timestamp);
+
+    private void EnqueueCore(Guid sessionId, byte[] pcm, ulong? timestamp)
     {
         ArgumentNullException.ThrowIfNull(pcm);
         if (pcm.Length != frameBytes)
@@ -91,6 +99,13 @@ public sealed class RemotePcmMixer(
             {
                 stream = new StreamBuffer(startupFrames);
                 streams.Add(sessionId, stream);
+            }
+
+            if (timestamp.HasValue)
+            {
+                stream.Adaptive ??= new AdaptivePcmStreamBuffer(frameBytes, stream.StartupFrames, maximumFrames, clock);
+                streamOverflows += stream.Adaptive.Enqueue(pcm, timestamp.Value);
+                return;
             }
 
             while (stream.Frames.Count >= maximumFrames)
@@ -121,21 +136,27 @@ public sealed class RemotePcmMixer(
             var mixedAny = false;
             foreach (StreamBuffer stream in streams.Values)
             {
-                if (!stream.Started)
+                byte[]? frame;
+                if (stream.Adaptive is { } adaptive)
                 {
-                    continue;
+                    bool wasStarted = adaptive.Started;
+                    if (!adaptive.TryRead())
+                    {
+                        if (wasStarted) streamUnderflows++;
+                        continue;
+                    }
+                    frame = adaptive.Output;
                 }
-
-                if (!stream.Frames.TryDequeue(out byte[]? frame))
+                else
                 {
-                    streamUnderflows++;
-                    // Once Bluetooth/RFCOMM jitter drains the queue, wait for a fresh
-                    // startup cushion instead of alternating one frame of audio with
-                    // one frame of silence indefinitely.
-                    stream.Started = false;
-                    continue;
+                    if (!stream.Started) continue;
+                    if (!stream.Frames.TryDequeue(out frame))
+                    {
+                        streamUnderflows++;
+                        stream.Started = false;
+                        continue;
+                    }
                 }
-
                 mixedAny = true;
                 ReadOnlySpan<float> samples = MemoryMarshal.Cast<byte, float>(frame);
                 for (var index = 0; index < mixed.Length; index++)
@@ -178,6 +199,7 @@ public sealed class RemotePcmMixer(
     private sealed class StreamBuffer(int startupFrames)
     {
         public Queue<byte[]> Frames { get; } = [];
+        public AdaptivePcmStreamBuffer? Adaptive { get; set; }
         public int StartupFrames { get; set; } = startupFrames;
         public bool Started { get; set; }
     }

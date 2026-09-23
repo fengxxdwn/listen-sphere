@@ -1,6 +1,3 @@
-using System.Buffers;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using ListenSphere.Audio.Abstractions;
 using ListenSphere.Audio.Engine;
 using NAudio.CoreAudioApi;
@@ -31,7 +28,9 @@ public sealed class WasapiPlaybackSink :
     private MMDevice? device;
     private BufferedWaveProvider? buffer;
     private WasapiOut? output;
-    private long playbackStartedAt;
+    private readonly IPlayoutClock clock = new StopwatchPlayoutClock();
+    private readonly IAdaptiveAudioResampler resampler = new AdaptiveLinearResampler();
+    private byte[] resampled = new byte[4096];
     private long framesWritten;
     private long bufferUnderruns;
     private long bufferOverflows;
@@ -100,12 +99,8 @@ public sealed class WasapiPlaybackSink :
             output.PlaybackStopped += OnPlaybackStopped;
             output.Init(buffer);
             adaptiveBuffer.Reset();
-            outputStarted = profile == WasapiPlaybackProfile.Standard;
-            if (outputStarted)
-            {
-                output.Play();
-                playbackStartedAt = Stopwatch.GetTimestamp();
-            }
+            resampler.Reset();
+            outputStarted = false;
             bufferWasLow = true;
         }
 
@@ -163,33 +158,24 @@ public sealed class WasapiPlaybackSink :
             {
                 estimatedClockDriftPpm = adaptiveBuffer.ObserveClock(
                     frame.Timestamp,
-                    Stopwatch.GetElapsedTime(playbackStartedAt));
+                    clock.Elapsed);
+                resampler.Ratio = adaptiveBuffer.GetResamplingRatio(bufferedMilliseconds, frame.Data.Length / 384000d);
             }
-            if (MemoryMarshal.TryGetArray(frame.Data, out var segment) &&
-                segment.Array is not null)
+            int required = resampler.GetMaximumOutputBytes(frame.Data.Length);
+            if (resampled.Length < required) resampled = new byte[required];
+            int written = resampler.Convert(frame.Data.Span, resampled);
+            if (buffer.BufferedBytes + written > buffer.BufferLength)
             {
-                buffer.AddSamples(segment.Array, segment.Offset, segment.Count);
+                bufferOverflows++;
+                return ValueTask.CompletedTask;
             }
-            else
-            {
-                var rented = ArrayPool<byte>.Shared.Rent(frame.Data.Length);
-                try
-                {
-                    frame.Data.Span.CopyTo(rented);
-                    buffer.AddSamples(rented, 0, frame.Data.Length);
-                }
-                finally
-                {
-                    ArrayPool<byte>.Shared.Return(rented);
-                }
-            }
-
+            buffer.AddSamples(resampled, 0, written);
             framesWritten++;
             if (!outputStarted &&
-                buffer.BufferedDuration >= TimeSpan.FromMilliseconds(100))
+                buffer.BufferedDuration >= TimeSpan.FromMilliseconds(profile == WasapiPlaybackProfile.BluetoothResilient ? 100 : 60))
             {
                 adaptiveBuffer.Reset();
-                playbackStartedAt = Stopwatch.GetTimestamp();
+
                 output!.Play();
                 outputStarted = true;
                 bufferWasLow = false;
@@ -214,6 +200,7 @@ public sealed class WasapiPlaybackSink :
             buffer = null;
             outputStarted = false;
             adaptiveBuffer.Reset();
+            resampler.Reset();
             device?.Dispose();
             device = null;
         }

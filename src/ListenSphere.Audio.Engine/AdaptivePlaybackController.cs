@@ -1,79 +1,45 @@
+using ListenSphere.Audio.Abstractions;
+
 namespace ListenSphere.Audio.Engine;
 
-public enum BufferCorrection
-{
-    None,
-    RecordUnderrun,
-    DropFrame
-}
+public enum BufferCorrection { None, RecordUnderrun, DropFrame }
 
-/// <summary>
-/// Keeps playback latency bounded and estimates sender-to-receiver clock drift.
-/// </summary>
+/// <summary>Combines remote clock observation and slowly varying buffer feedback.</summary>
 public sealed class AdaptivePlaybackController(
     int targetMilliseconds = 60,
-    int toleranceMilliseconds = 40)
+    int toleranceMilliseconds = 40,
+    IRemoteClockEstimator? clockEstimator = null)
 {
-    private ulong? firstTimestamp;
-    private TimeSpan firstLocalTime;
-    private double estimatedDriftPpm;
-
-    public double EstimatedDriftPpm => estimatedDriftPpm;
+    private readonly IRemoteClockEstimator estimator = clockEstimator ?? new RemoteClockEstimator();
+    private double filteredError, correctionPpm;
+    public double EstimatedDriftPpm => estimator.EstimatedDriftPpm;
+    public long ClockDiscontinuities => estimator.Discontinuities;
 
     public BufferCorrection EvaluateBuffer(int bufferedMilliseconds)
     {
-        if (bufferedMilliseconds > targetMilliseconds + toleranceMilliseconds)
-        {
+        // Whole-frame dropping is reserved for an emergency, not routine oscillator correction.
+        if (bufferedMilliseconds > targetMilliseconds + Math.Max(120, toleranceMilliseconds * 3))
             return BufferCorrection.DropFrame;
-        }
-
         return bufferedMilliseconds < Math.Max(0, targetMilliseconds - toleranceMilliseconds)
-            ? BufferCorrection.RecordUnderrun
-            : BufferCorrection.None;
+            ? BufferCorrection.RecordUnderrun : BufferCorrection.None;
     }
 
-    public double ObserveClock(
-        ulong sourceTimestamp,
-        TimeSpan localTime,
-        int sampleRate = 48_000)
+    public double ObserveClock(ulong sourceTimestamp, TimeSpan localTime, int sampleRate = 48_000) =>
+        estimator.Observe(sourceTimestamp, localTime, sampleRate);
+
+    public double GetResamplingRatio(double bufferedMilliseconds, double frameSeconds = 0.01)
     {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
-        if (firstTimestamp is null)
-        {
-            firstTimestamp = sourceTimestamp;
-            firstLocalTime = localTime;
-            return estimatedDriftPpm;
-        }
-
-        if (sourceTimestamp < firstTimestamp.Value)
-        {
-            firstTimestamp = sourceTimestamp;
-            firstLocalTime = localTime;
-            estimatedDriftPpm = 0;
-            return estimatedDriftPpm;
-        }
-
-        double localSeconds = (localTime - firstLocalTime).TotalSeconds;
-        if (localSeconds < 0.25)
-        {
-            return estimatedDriftPpm;
-        }
-
-        double sourceSeconds = (sourceTimestamp - firstTimestamp.Value) / (double)sampleRate;
-        double sample = Math.Clamp(
-            (sourceSeconds - localSeconds) / localSeconds * 1_000_000,
-            -10_000,
-            10_000);
-        estimatedDriftPpm = estimatedDriftPpm == 0
-            ? sample
-            : (estimatedDriftPpm * 0.9) + (sample * 0.1);
-        return estimatedDriftPpm;
+        if (!double.IsFinite(bufferedMilliseconds) || !double.IsFinite(frameSeconds) || frameSeconds <= 0)
+            throw new ArgumentOutOfRangeException(nameof(bufferedMilliseconds));
+        double dt = Math.Min(frameSeconds, 0.1);
+        filteredError += (bufferedMilliseconds - targetMilliseconds - filteredError) * (1 - Math.Exp(-dt / 2));
+        double requested = Math.Clamp(EstimatedDriftPpm + filteredError * 15, -2000, 2000);
+        correctionPpm += Math.Clamp(requested - correctionPpm, -100 * dt, 100 * dt);
+        return 1 + correctionPpm / 1_000_000;
     }
 
     public void Reset()
     {
-        firstTimestamp = null;
-        firstLocalTime = default;
-        estimatedDriftPpm = 0;
+        estimator.Reset(); filteredError = correctionPpm = 0;
     }
 }
