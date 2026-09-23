@@ -46,10 +46,20 @@ public sealed class AudioJitterBuffer
 
     public IReadOnlyList<NetworkAudioFrame> Push(NetworkAudioFrame frame)
     {
+        var ready = new List<NetworkAudioFrame>();
+        Push(frame, ready);
+        return ready;
+    }
+
+    /// <summary>Clears and fills caller-owned staging storage. Frames keep independent PCM ownership.</summary>
+    public void Push(NetworkAudioFrame frame, List<NetworkAudioFrame> ready)
+    {
+        ArgumentNullException.ThrowIfNull(ready);
+        ready.Clear();
         ObserveArrival(frame);
         if (!frames.TryAdd(frame.FrameSequence, frame))
         {
-            return [];
+            return;
         }
 
         Volatile.Write(ref bufferedFrameCount, frames.Count);
@@ -57,7 +67,7 @@ public sealed class AudioJitterBuffer
         {
             if (frames.Count < targetFrames)
             {
-                return [];
+                return;
             }
 
             NetworkAudioFrame first = frames.First().Value;
@@ -66,7 +76,7 @@ public sealed class AudioJitterBuffer
             started = true;
         }
 
-        var ready = new List<NetworkAudioFrame>();
+
         while (frames.Count >= targetFrames)
         {
             if (frames.Remove(nextSequence, out NetworkAudioFrame? current))
@@ -91,7 +101,7 @@ public sealed class AudioJitterBuffer
         }
 
         Volatile.Write(ref bufferedFrameCount, frames.Count);
-        return ready;
+
     }
 
     private void ObserveArrival(NetworkAudioFrame frame)

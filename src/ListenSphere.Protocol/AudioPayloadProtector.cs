@@ -14,6 +14,19 @@ public static class AudioPayloadProtector
         ReadOnlySpan<byte> key,
         ReadOnlySpan<byte> sessionSalt)
     {
+        var datagram = new byte[checked(AudioPacketHeader.Size + plaintext.Length + TagSize)];
+        Protect(template, plaintext, key, sessionSalt, datagram);
+        return datagram;
+    }
+
+    /// <summary>Writes into caller-owned storage; no plaintext or destination memory is retained.</summary>
+    public static int Protect(
+        AudioPacketHeader template,
+        ReadOnlySpan<byte> plaintext,
+        ReadOnlySpan<byte> key,
+        ReadOnlySpan<byte> sessionSalt,
+        Span<byte> destination)
+    {
         ValidateCryptographicInputs(key, sessionSalt);
         var protectedLength = checked(plaintext.Length + TagSize);
         var header = template with
@@ -22,17 +35,20 @@ public static class AudioPayloadProtector
             PayloadLength = checked((ushort)protectedLength)
         };
 
-        var datagram = new byte[AudioPacketHeader.Size + protectedLength];
-        var headerBytes = datagram.AsSpan(0, AudioPacketHeader.Size);
+        int datagramLength = AudioPacketHeader.Size + protectedLength;
+        if (destination.Length < datagramLength)
+            throw new ArgumentException("Destination is too small for the protected datagram.", nameof(destination));
+        Span<byte> datagram = destination[..datagramLength];
+        var headerBytes = datagram[..AudioPacketHeader.Size];
         header.Write(headerBytes);
-        var ciphertext = datagram.AsSpan(AudioPacketHeader.Size, plaintext.Length);
-        var tag = datagram.AsSpan(AudioPacketHeader.Size + plaintext.Length, TagSize);
+        var ciphertext = datagram.Slice(AudioPacketHeader.Size, plaintext.Length);
+        var tag = datagram.Slice(AudioPacketHeader.Size + plaintext.Length, TagSize);
         Span<byte> nonce = stackalloc byte[12];
         BuildNonce(header, sessionSalt, nonce);
 
         using var aes = new AesGcm(key, TagSize);
         aes.Encrypt(nonce, plaintext, ciphertext, tag, headerBytes);
-        return datagram;
+        return datagramLength;
     }
 
     public static bool TryUnprotect(

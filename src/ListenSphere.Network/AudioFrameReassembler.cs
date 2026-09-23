@@ -13,6 +13,7 @@ public sealed class AudioFrameReassembler
     private static readonly TimeSpan ReassemblyTimeout = TimeSpan.FromMilliseconds(200);
     private readonly AudioSessionParameters session;
     private readonly Dictionary<uint, Assembly> assemblies = [];
+    private readonly List<uint> expiredKeys = [];
 
     public AudioFrameReassembler(AudioSessionParameters session)
     {
@@ -23,10 +24,13 @@ public sealed class AudioFrameReassembler
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
         int expired = 0;
-        foreach (uint key in assemblies
-            .Where(item => now - item.Value.CreatedAt > ReassemblyTimeout)
-            .Select(item => item.Key)
-            .ToArray())
+        expiredKeys.Clear();
+        foreach (var item in assemblies)
+        {
+            if (now - item.Value.CreatedAt > ReassemblyTimeout)
+                expiredKeys.Add(item.Key);
+        }
+        foreach (uint key in expiredKeys)
         {
             assemblies.Remove(key);
             expired++;
@@ -94,7 +98,8 @@ public sealed class AudioFrameReassembler
 
         public byte[] Join()
         {
-            int length = fragments.Sum(fragment => fragment.Length);
+            int length = 0;
+            foreach (byte[] fragment in fragments) length += fragment.Length;
             byte[] result = GC.AllocateUninitializedArray<byte>(length);
             int offset = 0;
             foreach (byte[] fragment in fragments)

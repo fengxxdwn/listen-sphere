@@ -13,6 +13,8 @@ public sealed class UdpAudioSender : IAsyncDisposable
     private readonly AudioSessionParameters session;
     private readonly UdpClient udp;
     private readonly SemaphoreSlim sendGate = new(1, 1);
+    // Owned by this sender for its lifetime; sendGate covers every awaited socket send.
+    private readonly byte[] datagramBuffer = new byte[AudioPacketHeader.MaximumDatagramSize];
     private uint packetSequence;
     private uint frameSequence;
     private bool packetSequenceExhausted;
@@ -70,27 +72,25 @@ public sealed class UdpAudioSender : IAsyncDisposable
                 ChannelCount = session.ChannelCount,
                 FrameSamples = session.FrameSamples
             };
-            IReadOnlyList<byte[]> fragments = AudioPacketFragmenter.Fragment(pcm.Span, template);
-            foreach (byte[] fragment in fragments)
+            const int maximumPayload = AudioPacketHeader.MaximumDatagramSize -
+                AudioPacketHeader.Size - AudioPayloadProtector.TagSize;
+            uint fragmentCount = checked((uint)((pcm.Length + maximumPayload - 1) / maximumPayload));
+            for (int index = 0, offset = 0; index < fragmentCount; index++)
             {
-                if (!AudioPacketHeader.TryReadDatagram(
-                    fragment,
-                    out AudioPacketHeader header,
-                    out ReadOnlySpan<byte> plaintext,
-                    out _))
+                int length = Math.Min(maximumPayload, pcm.Length - offset);
+                var header = template with
                 {
-                    throw new InvalidDataException("The local fragmenter produced an invalid datagram.");
-                }
-
-                byte[] fragmentPlaintext = plaintext.ToArray();
-                byte[] protectedDatagram = AudioPayloadProtector.Protect(
-                    header,
-                    fragmentPlaintext,
-                    session.Key,
-                    session.Salt);
+                    FragmentIndex = (byte)index,
+                    FragmentCount = (byte)fragmentCount,
+                    PacketSequence = unchecked(template.PacketSequence + (uint)index),
+                    PayloadLength = checked((ushort)length)
+                };
+                int datagramLength = AudioPayloadProtector.Protect(
+                    header, pcm.Span.Slice(offset, length), session.Key, session.Salt, datagramBuffer);
+                offset += length;
                 try
                 {
-                    int sent = await udp.SendAsync(protectedDatagram, cancellationToken)
+                    int sent = await udp.SendAsync(datagramBuffer.AsMemory(0, datagramLength), cancellationToken)
                         .ConfigureAwait(false);
                     Interlocked.Increment(ref datagramsSent);
                     Interlocked.Add(ref bytesSent, sent);
@@ -102,7 +102,7 @@ public sealed class UdpAudioSender : IAsyncDisposable
                 }
             }
 
-            uint fragmentCount = checked((uint)fragments.Count);
+
             if (packetSequence > uint.MaxValue - fragmentCount)
             {
                 packetSequenceExhausted = true;

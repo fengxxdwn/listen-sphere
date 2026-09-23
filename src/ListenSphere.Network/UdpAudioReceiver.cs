@@ -120,14 +120,18 @@ public sealed class UdpAudioReceiver : IAsyncDisposable
 
     private async Task ReceiveLoopAsync(CancellationToken cancellationToken)
     {
+        // Loop-owned memory never escapes ProcessDatagram; accepted plaintext remains independently owned.
+        byte[] receiveBuffer = new byte[65_536];
+        EndPoint remoteTemplate = new IPEndPoint(IPAddress.IPv6Any, 0);
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                UdpReceiveResult received = await udp!.ReceiveAsync(cancellationToken)
+                SocketReceiveFromResult received = await udp!.Client.ReceiveFromAsync(
+                    receiveBuffer.AsMemory(), SocketFlags.None, remoteTemplate, cancellationToken)
                     .ConfigureAwait(false);
                 Interlocked.Increment(ref datagramsReceived);
-                ProcessDatagram(received.Buffer, received.RemoteEndPoint);
+                ProcessDatagram(receiveBuffer.AsSpan(0, received.ReceivedBytes), (IPEndPoint)received.RemoteEndPoint);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -144,7 +148,7 @@ public sealed class UdpAudioReceiver : IAsyncDisposable
         }
     }
 
-    private void ProcessDatagram(byte[] datagram, IPEndPoint remoteEndpoint)
+    private void ProcessDatagram(ReadOnlySpan<byte> datagram, IPEndPoint remoteEndpoint)
     {
         if (!AudioPacketHeader.TryReadDatagram(
             datagram,
@@ -208,7 +212,8 @@ public sealed class UdpAudioReceiver : IAsyncDisposable
 
         Interlocked.Increment(ref framesCompleted);
         session.RecordCompletedFrame();
-        foreach (NetworkAudioFrame frame in session.JitterBuffer.Push(result.Frame))
+        session.JitterBuffer.Push(result.Frame, session.ReadyFrames);
+        foreach (NetworkAudioFrame frame in session.ReadyFrames)
         {
             if (frame.IsConcealment)
             {
@@ -265,6 +270,8 @@ public sealed class UdpAudioReceiver : IAsyncDisposable
         public AudioFrameReassembler Reassembler { get; }
         public AudioJitterBuffer JitterBuffer { get; }
         public PacketSequenceTracker PacketTracker { get; } = new();
+        // ReceiveLoop is the sole consumer; the list itself is never published to the channel.
+        public List<NetworkAudioFrame> ReadyFrames { get; } = new(16);
 
         private long datagramsReceived;
         private long estimatedLostDatagrams;
