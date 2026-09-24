@@ -1,0 +1,63 @@
+name: Windows CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET SDK from global.json
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore ListenSphere.sln
+
+      - name: Release build
+        run: dotnet build ListenSphere.sln -c Release --no-restore -m:1 -warnaserror
+
+      - name: Full .NET tests
+        run: dotnet test ListenSphere.sln -c Release --no-build --no-restore --logger trx --results-directory TestResults/R10/Full
+
+      - name: Architecture and Git index gate
+        run: dotnet test tests/ListenSphere.Architecture.Tests/ListenSphere.Architecture.Tests.csproj -c Release --no-build --no-restore --logger trx --results-directory TestResults/R10/Architecture
+
+      - name: Protocol compatibility gate
+        run: dotnet test tests/ListenSphere.Protocol.Tests/ListenSphere.Protocol.Tests.csproj -c Release --no-build --no-restore --logger trx --results-directory TestResults/R10/Protocol
+
+      - name: Check patch whitespace
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          $baseline = if ($env:BASE_SHA -and $env:BASE_SHA -notmatch '^0+$') { $env:BASE_SHA } else { 'HEAD^' }
+          git diff --check $baseline HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Source file size report
+        if: always()
+        shell: pwsh
+        run: ./scripts/Write-ListenSphereFileSizeReport.ps1 -OutputPath TestResults/R10/file-sizes.md
+
+      - name: Upload Windows test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-results
+          path: TestResults/R10/
+          if-no-files-found: warn
+          retention-days: 14
