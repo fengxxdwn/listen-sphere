@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     defaults:
       run:
@@ -42,7 +42,7 @@ jobs:
 
       - name: Upload Android test XML
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-unit-test-results
           path: apps/ListenSphere.Mobile/app/build/test-results/testDebugUnitTest/*.xml
@@ -51,7 +51,7 @@ jobs:
 
       - name: Upload Debug APK
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-debug-apk
           path: apps/ListenSphere.Mobile/app/build/outputs/apk/debug/*.apk
