@@ -40,7 +40,7 @@ Git 索引检查禁止跟踪 `bin`、`obj`、IDE/Gradle 临时目录、`TestResu
 
 ## 人工测试
 
-本阶段无用户界面或音频行为改动，因此没有另行启动程序做视觉/听感回归。本地编译、测试、XML、APK、报告均已验证。草稿 [PR #1](https://github.com/fengxxdwn/listen-sphere/pull/1) 的 [Windows CI](https://github.com/fengxxdwn/listen-sphere/actions/runs/35969809015) 和 [Android CI](https://github.com/fengxxdwn/listen-sphere/actions/runs/35969809115) 均成功；PR 仍为草稿，等待用户验收后再合并。
+本阶段无用户界面或音频行为改动，因此没有另行启动程序做视觉/听感回归。本地编译、测试、XML、APK、报告均已验证。[PR #1](https://github.com/fengxxdwn/listen-sphere/pull/1) 的 Windows 和 Android 检查均成功；用户于 2026-09-24 反馈“验收通过”。
 
 ## 已知风险
 
@@ -51,6 +51,6 @@ Git 索引检查禁止跟踪 `bin`、`obj`、IDE/Gradle 临时目录、`TestResu
 
 ## 阶段是否通过
 
-R10 实现、本地门禁与远端 Windows/Android PR 工作流均通过。Windows `windows-test-results`、Android `android-unit-test-results` 与 `android-debug-apk` 三份产物已核对为非空、未过期。阶段等待用户验收，PR 保持草稿，不自动合并 `main` 或进入 Release Pipeline。
+R10 实现、本地门禁与远端 Windows/Android PR 工作流均通过。Windows `windows-test-results`、Android `android-unit-test-results` 与 `android-debug-apk` 三份产物已核对为非空、未过期。用户已验收 R10；按既定阶段流程通过 PR #1 合并 `main`，发布流程待单独启动。
 
 参考：GitHub [setup-dotnet](https://github.com/actions/setup-dotnet)、[setup-java](https://github.com/actions/setup-java)、[upload-artifact](https://github.com/actions/upload-artifact)，[Gradle setup-gradle](https://github.com/gradle/actions/tree/main/setup-gradle)，[Android setup-android](https://github.com/android-actions/setup-android)。
