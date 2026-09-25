@@ -41,11 +41,34 @@ local use. Release candidates must use the defaults and must not skip tests.
 
 ## Windows installer (P11-C)
 
-Inno Setup will consume the two publish directories without rebuilding them.
-It will install under `%ProgramFiles%\ListenSphere`, create stable Start Menu
-shortcuts, offer an off-by-default desktop shortcut, preserve LocalAppData on
-upgrade/uninstall, and optionally launch Controller only. See
-`packaging/windows/README.md` for security and firewall decisions.
+P11-C implements `packaging/windows/ListenSphere.iss` and
+`scripts/Build-ListenSphereInstaller.ps1`. Inno Setup consumes the two P11-B
+publish directories without rebuilding them. Run:
+
+```powershell
+./scripts/Build-ListenSphereInstaller.ps1
+```
+
+The script reads product and numeric versions from
+`eng/ListenSphere.Version.props`, validates the approved Windows ICO and both
+self-contained inputs, locates Inno Setup 6, and produces:
+
+```text
+artifacts/packages/ListenSphere-Setup-<version>-win-x64.exe
+artifacts/packages/SHA256SUMS.txt
+```
+
+The installer uses the stable AppId
+`{73B23AE6-AFA2-402B-B0E0-993531F7527B}`. Controller is always installed;
+Sender is optional and off by default. Files remain separated under
+`%ProgramFiles%\ListenSphere\Controller` and `Sender`. Start Menu names do
+not contain a version, the optional desktop shortcut targets Controller, and
+the finish action can launch Controller only.
+
+Upgrade and uninstall never target `%LocalAppData%\ListenSphere`. The Beta
+installer creates no startup entry, service, driver, PATH change, or firewall
+rule. It is currently unsigned and may trigger Windows SmartScreen. See
+`packaging/windows/README.md` and the P11-C validation report for details.
 
 ## Android packages (P11-D)
 

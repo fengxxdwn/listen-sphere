@@ -53,17 +53,17 @@ Android 10（API 29）或更高版本才支持本项目使用的 AudioPlaybackCa
 
 当前自动门禁统计：
 
-- .NET tests：213/213。
+- .NET tests：214/214。
 - Android test files：17。
 - Android unit tests：36/36。
 
 ## 下载
 
-P11-A 仅完成产品 Metadata 与打包架构准备，尚未发布面向用户的安装包。后续产物将统一从 GitHub Actions 下载，不应将仓库根目录中的历史测试包视为正式发布。
+P11-C 已具备本地生成 Windows Installer 的能力；正式用户下载仍待 Packaging CI / Release。仓库根目录中的历史测试包不应视为正式发布。
 
 ## Windows 安装
 
-正式安装器将在 P11-C 提供，目标安装位置为 `%ProgramFiles%\ListenSphere`。普通安装、升级与卸载都将保留 `%LocalAppData%\ListenSphere` 下的设置、场景、配对信任和日志。当前 Beta 安装器计划为未签名版本，可能触发 Windows SmartScreen。
+可使用 Inno Setup 6 和 `scripts/Build-ListenSphereInstaller.ps1` 在本地生成安装器，目标安装位置为 `%ProgramFiles%\ListenSphere`。Controller 默认安装，Sender 可选；普通安装、升级与卸载都将保留 `%LocalAppData%\ListenSphere` 下的设置、场景、配对信任和日志。当前 Beta 安装器未签名，可能触发 Windows SmartScreen。
 
 ## Windows 便携版
 
