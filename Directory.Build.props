@@ -1,4 +1,5 @@
 <Project>
+  <Import Project="eng/ListenSphere.Version.props" />
   <PropertyGroup>
     <LangVersion>14.0</LangVersion>
     <Nullable>enable</Nullable>
@@ -7,6 +8,13 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <Version>$(ListenSphereProductVersion)</Version>
+    <VersionPrefix>$(ListenSphereVersionPrefix)</VersionPrefix>
+    <VersionSuffix>$(ListenSphereVersionSuffix)</VersionSuffix>
+    <InformationalVersion>$(ListenSphereProductVersion)</InformationalVersion>
+    <Company>ListenSphere Project</Company>
+    <Product>ListenSphere</Product>
+    <Copyright>Copyright © ListenSphere Project 2026</Copyright>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 </Project>
-

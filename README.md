@@ -2,6 +2,8 @@
 
 聆界（ListenSphere）是一款面向多电脑、多设备用户的局域网音频中枢。
 
+当前产品版本：`0.6.0-beta.1`（P11 Beta）。
+
 当前仓库已完成：
 
 - P0：需求、架构、协议草案和可编译骨架。
@@ -46,6 +48,38 @@ cd apps\ListenSphere.Mobile
 
 Android 10（API 29）或更高版本才支持本项目使用的 AudioPlaybackCapture。系统播放声音仍受 Android 授权、应用捕获策略和受保护内容限制。
 
+## 下载
+
+P11-A 仅完成产品 Metadata 与打包架构准备，尚未发布面向用户的安装包。后续产物将统一从 GitHub Actions 下载，不应将仓库根目录中的历史测试包视为正式发布。
+
+## Windows 安装
+
+正式安装器将在 P11-C 提供，目标安装位置为 `%ProgramFiles%\ListenSphere`。普通安装、升级与卸载都将保留 `%LocalAppData%\ListenSphere` 下的设置、场景、配对信任和日志。当前 Beta 安装器计划为未签名版本，可能触发 Windows SmartScreen。
+
+## Windows 便携版
+
+P11-B 将提供自包含的 Controller 与 Sender `win-x64` ZIP，不要求用户单独安装 .NET Runtime。当前尚无 P11 便携包。
+
+## Android 安装
+
+当前阶段可从源码构建 Debug APK。Android 可能要求用户允许安装来自所用文件管理器或浏览器的未知应用。正式签名 APK 尚未提供，任何永久 keystore 都不会提交到本仓库。
+
+## 系统要求
+
+- Windows x64；源码构建需要 `.NET SDK 10.0.302`（以 `global.json` 为准）。
+- Android 10（API 29）或更高版本；源码构建需要 JDK 17 与 Android SDK 34。
+- 设备位于允许局域网设备互访与 mDNS 的网络中。
+
+## 第一次连接
+
+先启动 Controller，再启动 Sender 或 Android 客户端；选择发现到的 Controller，并按界面提示完成六位验证码配对。Windows Defender Firewall 首次提示时，仅在可信网络上允许 Controller 通信。
+
+## Beta 注意事项
+
+- P11 尚未完成安装器签名、自动更新或应用商店发布。
+- 安装前保留重要设置备份；卸载默认不会删除用户数据。
+- 网络隔离、客户端隔离或受保护的 Android 音频内容可能阻止连接或捕获。
+
 设计与验收资料：
 
 - `docs/architecture/p0-architecture.md`
@@ -57,3 +91,7 @@ Android 10（API 29）或更高版本才支持本项目使用的 AudioPlaybackCa
 - `docs/development/p5-status.md`
 - `docs/development/p6-status.md`
 - `docs/development/p7-android-status.md`
+- `docs/release/versioning.md`
+- `docs/release/packaging.md`
+- `docs/release/android-signing.md`
+- `docs/release/release-checklist.md`
