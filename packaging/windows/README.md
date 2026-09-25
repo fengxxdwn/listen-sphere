@@ -1,6 +1,6 @@
-# Windows installer plan
+# Windows installer
 
-The first installer will use Inno Setup and produce
+P11-C uses Inno Setup 6 and produces
 `ListenSphere-Setup-<version>-win-x64.exe`.
 
 Planned layout:
@@ -11,7 +11,8 @@ Planned layout:
   Sender\
 ```
 
-Controller is the default component and Sender is optional. Start Menu entries
+Controller is a fixed default component and Sender is optional and off by
+default. Start Menu entries
 are stable across upgrades; a desktop shortcut is optional and off by default.
 The finish page may launch Controller only. The installer must never launch
 Sender automatically or configure startup tasks, services, PATH, drivers, or
@@ -29,6 +30,23 @@ Windows Defender Firewall first-run consent is retained. This decision must be
 revisited if stable configurable ports are introduced; the firewall must never
 be disabled.
 
-`ListenSphere.iss` and the build scripts are intentionally deferred to P11-C.
 Unsigned Beta installers may trigger Windows SmartScreen. Future signing will
 use a CI-provided certificate and `signtool`; no key material belongs in Git.
+
+First generate or verify the P11-B publish directories:
+
+```powershell
+./scripts/Publish-ListenSphereWindows.ps1
+```
+
+Then build the installer without rebuilding the applications:
+
+```powershell
+./scripts/Build-ListenSphereInstaller.ps1
+```
+
+The build script reads `eng/ListenSphere.Version.props`, validates both
+self-contained publish directories and the approved ICO, locates
+`ISCC.exe`, and writes the installer plus the unified `SHA256SUMS.txt` under
+`artifacts/packages`. Use `-IsccPath` for a non-standard Inno Setup 6
+installation when registry discovery is unavailable.

@@ -104,6 +104,40 @@ public sealed class GovernanceTests
         Assert.Contains("artifacts/", gitignore, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void WindowsInstaller_IsStableAndAvoidsProhibitedSystemChanges()
+    {
+        string root = FindRepository();
+        string installerPath = Path.Combine(root, "packaging", "windows", "ListenSphere.iss");
+        string buildScriptPath = Path.Combine(root, "scripts", "Build-ListenSphereInstaller.ps1");
+        Assert.True(File.Exists(installerPath), $"Installer script is missing: {installerPath}");
+        Assert.True(File.Exists(buildScriptPath), $"Installer build script is missing: {buildScriptPath}");
+
+        string installer = File.ReadAllText(installerPath);
+        Assert.Matches(@"AppId=\{\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}", installer);
+        Assert.DoesNotContain("0.6.0-beta.1", installer, StringComparison.Ordinal);
+        Assert.Contains("SetupIconFile={#SourceRoot}\\assets\\branding\\windows\\ListenSphere.ico", installer, StringComparison.Ordinal);
+        Assert.Contains("CloseApplications=yes", installer, StringComparison.Ordinal);
+        Assert.Contains("RestartApplications=no", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("LocalAppData", installer, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("netsh", installer, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("firewall", installer, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("taskkill", installer, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("[UninstallDelete]", installer, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("service", installer, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("driver", installer, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\\CurrentVersion\\Run", installer, StringComparison.OrdinalIgnoreCase);
+
+        string buildScript = File.ReadAllText(buildScriptPath);
+        Assert.Contains("eng/ListenSphere.Version.props", buildScript, StringComparison.Ordinal);
+        Assert.Contains("ListenSphereProductVersion", buildScript, StringComparison.Ordinal);
+        Assert.Contains("ListenSphereVersionPrefix", buildScript, StringComparison.Ordinal);
+        Assert.Contains("FileVersion", buildScript, StringComparison.Ordinal);
+        Assert.Contains("/DProductVersion=$productVersion", buildScript, StringComparison.Ordinal);
+        Assert.Contains("/DNumericVersion=$numericVersion", buildScript, StringComparison.Ordinal);
+        Assert.DoesNotContain("0.6.0-beta.1", buildScript, StringComparison.Ordinal);
+    }
+
     private static string[] GetProjectReferences(string project)
     {
         XDocument document = XDocument.Load(project);
