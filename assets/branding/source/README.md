@@ -1,11 +1,10 @@
 # Required source artwork
 
-Replace this document's placeholders with the approved artwork before a release
-candidate is created:
+The approved artwork is stored as:
 
-- `listensphere-icon.svg`: square vector master, with outlined text and no
-  externally linked fonts or images.
-- `listensphere-icon-1024.png`: 1024 x 1024 RGBA fallback rendered from the SVG.
+- `listensphere-icon.png`: canonical supplied source PNG.
+- `listensphere-icon-1024.png`: generated 1024 x 1024 platform fallback.
 
-The important mark must remain inside the central Android adaptive-icon safe
-zone. Do not include signing data or generated platform files here.
+The source must remain square and at least 1024 px. The generation script
+creates Android safe-zone padding and all platform sizes without redrawing the
+artwork. Do not include signing data here.
