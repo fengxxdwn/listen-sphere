@@ -67,7 +67,7 @@ public sealed class GovernanceTests
         git.WaitForExit();
         Assert.True(git.ExitCode == 0, error);
 
-        string[] forbiddenDirectories = ["bin", "obj", ".vs", ".idea", ".vscode", ".gradle", ".kotlin", "TestResults"];
+        string[] forbiddenDirectories = ["bin", "obj", ".vs", ".idea", ".vscode", ".gradle", ".kotlin", "artifacts", "TestResults"];
         string[] forbiddenExtensions = [".apk", ".log", ".user", ".suo"];
         foreach (string path in paths.Split('\0', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -80,6 +80,28 @@ public sealed class GovernanceTests
                 normalized.EndsWith("_wpftmp.csproj", StringComparison.OrdinalIgnoreCase);
             Assert.False(generatedDirectory || generatedFile, $"Git tracks generated or IDE file: {normalized}");
         }
+    }
+
+    [Fact]
+    public void WindowsPortablePackagingScript_UsesCentralVersionAndSafePublishSettings()
+    {
+        string root = FindRepository();
+        string scriptPath = Path.Combine(root, "scripts", "Publish-ListenSphereWindows.ps1");
+        Assert.True(File.Exists(scriptPath), $"Packaging script is missing: {scriptPath}");
+
+        string script = File.ReadAllText(scriptPath);
+        Assert.Contains("eng/ListenSphere.Version.props", script, StringComparison.Ordinal);
+        Assert.Contains("ListenSphereProductVersion", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("0.6.0-beta.1", script, StringComparison.Ordinal);
+        Assert.Contains("--self-contained', 'true", script, StringComparison.Ordinal);
+        Assert.Contains("PublishSingleFile=false", script, StringComparison.Ordinal);
+        Assert.Contains("PublishTrimmed=false", script, StringComparison.Ordinal);
+        Assert.Contains("ListenSphere-Controller-$Runtime-$version.zip", script, StringComparison.Ordinal);
+        Assert.Contains("ListenSphere-Sender-$Runtime-$version.zip", script, StringComparison.Ordinal);
+        Assert.Contains("SHA256SUMS.txt", script, StringComparison.Ordinal);
+
+        string gitignore = File.ReadAllText(Path.Combine(root, ".gitignore"));
+        Assert.Contains("artifacts/", gitignore, StringComparison.Ordinal);
     }
 
     private static string[] GetProjectReferences(string project)

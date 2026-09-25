@@ -53,7 +53,7 @@ Android 10（API 29）或更高版本才支持本项目使用的 AudioPlaybackCa
 
 当前自动门禁统计：
 
-- .NET tests：212/212。
+- .NET tests：213/213。
 - Android test files：17。
 - Android unit tests：36/36。
 
@@ -67,7 +67,7 @@ P11-A 仅完成产品 Metadata 与打包架构准备，尚未发布面向用户�
 
 ## Windows 便携版
 
-P11-B 将提供自包含的 Controller 与 Sender `win-x64` ZIP，不要求用户单独安装 .NET Runtime。当前尚无 P11 便携包。
+P11-B 已具备本地生成自包含 Controller 与 Sender `win-x64` 便携包的能力，不要求用户单独安装 .NET Runtime；正式用户下载仍待 Packaging CI / Release。
 
 ## Android 安装
 
