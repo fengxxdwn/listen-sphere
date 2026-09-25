@@ -2,8 +2,10 @@
 
 ## Windows portable packages (P11-B)
 
-`scripts/Publish-ListenSphereWindows.ps1` will restore, build and test the
-solution, then publish Controller and Sender independently with:
+P11-B implements `scripts/Publish-ListenSphereWindows.ps1` as the local package
+entry point. It reads the version from `eng/ListenSphere.Version.props`, cleans
+only the ignored packaging output, restores, builds and tests the solution, then
+publishes Controller and Sender independently with:
 
 ```text
 Configuration=Release
@@ -22,9 +24,20 @@ ListenSphere-Sender-win-x64-<version>.zip
 SHA256SUMS.txt
 ```
 
-Standard publish directories are retained for native dependency visibility and
-troubleshooting. Single-file and trimming require separate validation and are
+Standard publish directories and PDB files are retained for native dependency
+visibility and Beta diagnostics. The script validates executable metadata and
+self-contained runtime files before creating root-level ZIP contents and
+`SHA256SUMS.txt`. Single-file and trimming require separate validation and are
 not enabled in P11.
+
+Run the complete flow from the repository root:
+
+```powershell
+./scripts/Publish-ListenSphereWindows.ps1
+```
+
+`-Configuration`, `-Runtime` and `-SkipTests` are available for controlled
+local use. Release candidates must use the defaults and must not skip tests.
 
 ## Windows installer (P11-C)
 
