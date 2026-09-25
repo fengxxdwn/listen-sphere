@@ -1,7 +1,20 @@
+import javax.xml.parsers.DocumentBuilderFactory
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val listenSphereVersionFile = rootProject.file("../../eng/ListenSphere.Version.props")
+val listenSphereVersionDocument = DocumentBuilderFactory.newInstance()
+    .newDocumentBuilder()
+    .parse(listenSphereVersionFile)
+
+fun listenSphereVersionProperty(name: String): String {
+    val nodes = listenSphereVersionDocument.getElementsByTagName(name)
+    check(nodes.length == 1) { "Missing or duplicate $name in $listenSphereVersionFile" }
+    return nodes.item(0).textContent.trim()
 }
 
 android {
@@ -12,8 +25,8 @@ android {
         applicationId = "io.listensphere.mobile"
         minSdk = 29
         targetSdk = 34
-        versionCode = 25
-        versionName = "0.5.1-stage5"
+        versionCode = listenSphereVersionProperty("ListenSphereAndroidVersionCode").toInt()
+        versionName = listenSphereVersionProperty("ListenSphereProductVersion")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

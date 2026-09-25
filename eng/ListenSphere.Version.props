@@ -1,0 +1,12 @@
+<Project>
+  <!-- Product release version source of truth. Keep values valid for both MSBuild and Android. -->
+  <PropertyGroup>
+    <ListenSphereProductVersion>0.6.0-beta.1</ListenSphereProductVersion>
+    <ListenSphereVersionPrefix>0.6.0</ListenSphereVersionPrefix>
+    <ListenSphereVersionSuffix>beta.1</ListenSphereVersionSuffix>
+    <AssemblyVersion>0.6.0.0</AssemblyVersion>
+    <FileVersion>0.6.0.0</FileVersion>
+    <!-- This repository historically used a monotonically increasing integer; never decrease it. -->
+    <ListenSphereAndroidVersionCode>26</ListenSphereAndroidVersionCode>
+  </PropertyGroup>
+</Project>
