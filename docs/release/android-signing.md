@@ -15,7 +15,8 @@ LISTENSPHERE_ANDROID_KEY_PASSWORD
 ```
 
 `LISTENSPHERE_ANDROID_KEYSTORE` contains base64-encoded keystore bytes. It is
-not a Gradle input. A future P11-E release-only workflow will:
+not a Gradle input. The P11-E manual Packaging workflow performs this lifecycle
+only when its `android_signing` input is `signed`:
 
 ```text
 base64 GitHub Secret
@@ -23,7 +24,7 @@ base64 GitHub Secret
   -> set LISTENSPHERE_ANDROID_KEYSTORE_PATH
   -> invoke Gradle
   -> verify the APK signature
-  -> delete the temporary keystore in always()
+  -> delete the temporary keystore in an always() step
 ```
 
 Gradle consumes only these runtime environment variables:
@@ -50,9 +51,15 @@ The first command permits the explicitly named unsigned Release APK. The second
 fails unless complete credentials are available and the resulting APK passes
 `apksigner verify`.
 
+The workflow fails if signed mode is requested and any of the four Secrets is
+missing. It never falls back to unsigned in that case. The default `unsigned`
+mode does not require or decode a keystore and produces a filename containing
+`release-unsigned`.
+
 Ordinary CI continues to build and test Debug without requiring release
-credentials. P11-D does not configure GitHub Secrets or workflows. Never store
-passwords in `gradle.properties`, `local.properties`, or the repository.
+credentials. P11-E consumes configured Secrets but does not create or update
+them. Never store passwords in `gradle.properties`, `local.properties`, or the
+repository.
 
 Once a release keystore is used for public distribution, back it up securely.
 Losing the signing key can prevent future versions from upgrading existing

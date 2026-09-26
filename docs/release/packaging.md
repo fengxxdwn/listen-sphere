@@ -96,16 +96,40 @@ Store publishing remain out of scope.
 
 ## Packaging workflow (P11-E)
 
-A separate `.github/workflows/package.yml` will initially use
-`workflow_dispatch` only. It will set up .NET from `global.json`, build/test,
-publish both Windows apps, invoke Inno Setup, set up JDK 17/Android SDK 34,
-build/test Android, create one `SHA256SUMS.txt`, and upload these artifact groups:
+A separate `.github/workflows/package.yml` uses `workflow_dispatch` only and
+must be run from `main`. In GitHub, open **Actions > Packaging > Run workflow**,
+select `main`, choose the Android signing mode, and start the run. The default
+`unsigned` mode requires no signing secret. The workflow sets up .NET from
+`global.json`, Temurin JDK 17, Android SDK 34 / Build Tools 34.0.0, Gradle
+Wrapper caching and validation, and Inno Setup major version 6.
+
+Packaging deliberately invokes the same local entry points in this order:
+
+```powershell
+./scripts/Publish-ListenSphereWindows.ps1
+./scripts/Build-ListenSphereInstaller.ps1
+./scripts/Build-ListenSphereAndroid.ps1
+./scripts/Test-ListenSpherePackageSet.ps1 -AndroidSigning unsigned
+```
+
+Signed mode passes `-RequireSigned` to the Android script and validates the
+signed package set. No core packaging command is duplicated in YAML. The final
+validator requires exactly the five versioned packages, rejects stale or empty
+files, and independently checks every entry in `SHA256SUMS.txt`.
+
+Successful runs upload these artifact groups for 14 days:
 
 - `windows-controller-portable`
 - `windows-sender-portable`
 - `windows-installer`
 - `android-debug-apk`
+- `android-release-apk`
 - `checksums`
 
-Signed Android and tag-triggered GitHub Release jobs are future opt-in work.
-No workflow will create a public Release without explicit approval.
+Download all six groups and use `SHA256SUMS.txt` to verify the inner package
+files, not GitHub's outer artifact ZIP files. These are GitHub Actions Artifacts,
+not a public GitHub Release. The workflow does not create a tag or Release.
+
+The workflow source can be reviewed and tested by ordinary CI on its feature
+branch. Its first official manual Packaging run remains pending until the
+workflow is merged to the default branch.
