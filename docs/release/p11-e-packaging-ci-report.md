@@ -4,7 +4,7 @@
 
 - Branch: `codex/p11-e-packaging-ci`
 - Baseline main: `9beff6dadb3b06f62e2004d5ee54685811fb489d`
-- Implementation commit: pending until branch completion
+- Implementation commit: `f4cad8c`
 - Product version source: `eng/ListenSphere.Version.props`
 - Product version: `0.6.0-beta.1`
 - Android versionCode: `26`
@@ -93,8 +93,20 @@ itself, and recomputes every SHA-256 value.
   read-only permissions, approved script orchestration, central version use,
   strict uploads, cleanup, and prohibited Release/tag operations.
 - Existing `windows-ci.yml` and `android-ci.yml` are unchanged.
-- Local build, tests, hygiene checks, and script regression results are filled
-  in at branch completion.
+- Release build: passed with 0 warnings and 0 errors.
+- .NET tests: 216/216 passed (Architecture 15, Core 105, Protocol 14,
+  Windows Technical 82).
+- Android test files: 17.
+- Android Debug unit tests: 36/36 passed.
+- Android Release unit tests: 36/36 passed.
+- Windows Portable, Inno Setup Installer, Android Debug APK, and unsigned
+  Android Release APK packaging regressions: passed.
+- Unsigned final package-set validation: five packages and five independently
+  verified SHA-256 entries passed.
+- Signed-mode package validation correctly rejected the unsigned package set.
+- `git diff --check`: passed.
+- Git index checks found no tracked artifacts, APKs, JKS files, keystores, or
+  keystore properties.
 - Remote Packaging run: pending until workflow is merged to main.
 
 ## Known risks
