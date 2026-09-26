@@ -1,7 +1,9 @@
-# Android signing design
+# Android signing
 
 Debug APKs use the normal disposable Android debug signing mechanism. No
-permanent release keystore is generated or stored in this repository.
+permanent release keystore is generated or stored in this repository. When no
+release credentials are configured, P11-D intentionally creates an unsigned
+Release APK whose filename includes `release-unsigned`.
 
 Future release signing uses these GitHub Secrets:
 
@@ -12,14 +14,46 @@ LISTENSPHERE_ANDROID_KEY_ALIAS
 LISTENSPHERE_ANDROID_KEY_PASSWORD
 ```
 
-`LISTENSPHERE_ANDROID_KEYSTORE` contains base64-encoded keystore bytes. A
-release-only workflow will decode it to a temporary runner path, expose values
-to Gradle only through environment variables, build the APK, verify its
-signature, and remove the temporary file in an `always()` cleanup step. Logs and
-artifacts must not include secrets or the keystore.
+`LISTENSPHERE_ANDROID_KEYSTORE` contains base64-encoded keystore bytes. It is
+not a Gradle input. A future P11-E release-only workflow will:
 
-Ordinary CI must succeed when these secrets are absent and will continue to
-produce the debug APK. A manually invoked unsigned release build may produce
-`app-release-unsigned.apk`; it must never be presented as a signed public
-release. Tag signing remains disabled until the keystore owner approves the
-secret setup and recovery procedure.
+```text
+base64 GitHub Secret
+  -> decode to a temporary .jks file
+  -> set LISTENSPHERE_ANDROID_KEYSTORE_PATH
+  -> invoke Gradle
+  -> verify the APK signature
+  -> delete the temporary keystore in always()
+```
+
+Gradle consumes only these runtime environment variables:
+
+```text
+LISTENSPHERE_ANDROID_KEYSTORE_PATH
+LISTENSPHERE_ANDROID_KEYSTORE_PASSWORD
+LISTENSPHERE_ANDROID_KEY_ALIAS
+LISTENSPHERE_ANDROID_KEY_PASSWORD
+```
+
+All four values must be present or all four must be absent. A partial
+configuration fails immediately instead of silently producing an unsigned APK.
+Passwords are never printed.
+
+Use the local packaging entry point:
+
+```powershell
+./scripts/Build-ListenSphereAndroid.ps1
+./scripts/Build-ListenSphereAndroid.ps1 -RequireSigned
+```
+
+The first command permits the explicitly named unsigned Release APK. The second
+fails unless complete credentials are available and the resulting APK passes
+`apksigner verify`.
+
+Ordinary CI continues to build and test Debug without requiring release
+credentials. P11-D does not configure GitHub Secrets or workflows. Never store
+passwords in `gradle.properties`, `local.properties`, or the repository.
+
+Once a release keystore is used for public distribution, back it up securely.
+Losing the signing key can prevent future versions from upgrading existing
+installations. P11-D does not create a production key.

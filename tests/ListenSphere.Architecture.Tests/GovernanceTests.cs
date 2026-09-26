@@ -138,6 +138,48 @@ public sealed class GovernanceTests
         Assert.DoesNotContain("0.6.0-beta.1", buildScript, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AndroidPackaging_UsesCentralVersionAndSafeSigningInputs()
+    {
+        string root = FindRepository();
+        string scriptPath = Path.Combine(root, "scripts", "Build-ListenSphereAndroid.ps1");
+        string gradlePath = Path.Combine(
+            root, "apps", "ListenSphere.Mobile", "app", "build.gradle.kts");
+        Assert.True(File.Exists(scriptPath), $"Android packaging script is missing: {scriptPath}");
+
+        string script = File.ReadAllText(scriptPath);
+        string gradle = File.ReadAllText(gradlePath);
+        foreach (string environmentName in new[]
+        {
+            "LISTENSPHERE_ANDROID_KEYSTORE_PATH",
+            "LISTENSPHERE_ANDROID_KEYSTORE_PASSWORD",
+            "LISTENSPHERE_ANDROID_KEY_ALIAS",
+            "LISTENSPHERE_ANDROID_KEY_PASSWORD"
+        })
+        {
+            Assert.Contains(environmentName, script, StringComparison.Ordinal);
+            Assert.Contains(environmentName, gradle, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("eng/ListenSphere.Version.props", script, StringComparison.Ordinal);
+        Assert.Contains("ListenSphereProductVersion", script, StringComparison.Ordinal);
+        Assert.Contains("ListenSphereAndroidVersionCode", script, StringComparison.Ordinal);
+        Assert.Contains("ListenSphere-Mobile-release-unsigned-$versionName.apk", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("0.6.0-beta.1", script, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"(?m)\b26\b", script);
+        Assert.DoesNotContain("0.6.0-beta.1", gradle, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"versionName\s*=\s*""", gradle);
+        Assert.DoesNotMatch(@"versionCode\s*=\s*26\b", gradle);
+        Assert.DoesNotMatch(@"(?i)(storePassword|keyPassword)\s*=\s*""[^""]+""", gradle);
+        Assert.Contains("applicationId = \"io.listensphere.mobile\"", gradle, StringComparison.Ordinal);
+        Assert.Contains("isMinifyEnabled = false", gradle, StringComparison.Ordinal);
+
+        string gitignore = File.ReadAllText(Path.Combine(root, ".gitignore"));
+        Assert.Contains("*.jks", gitignore, StringComparison.Ordinal);
+        Assert.Contains("*.keystore", gitignore, StringComparison.Ordinal);
+        Assert.Contains("keystore.properties", gitignore, StringComparison.Ordinal);
+    }
+
     private static string[] GetProjectReferences(string project)
     {
         XDocument document = XDocument.Load(project);

@@ -72,11 +72,27 @@ rule. It is currently unsigned and may trigger Windows SmartScreen. See
 
 ## Android packages (P11-D)
 
-Normal CI keeps `assembleDebug testDebugUnitTest`. Packaging adds
-`assembleRelease`; without signing secrets it may retain the unsigned release
-APK. Uploaded files will be renamed to
-`ListenSphere-Mobile-debug-<version>.apk` and
-`ListenSphere-Mobile-<version>.apk`. AAB/Play Store publishing is out of scope.
+P11-D implements `scripts/Build-ListenSphereAndroid.ps1`. It reads
+`versionName` and `versionCode` from `eng/ListenSphere.Version.props`, runs
+Debug and Release unit tests/builds, verifies APK metadata and content with
+Android SDK Build Tools 34.0.0, validates signatures with `apksigner`, and
+updates the shared `SHA256SUMS.txt`.
+
+Without release credentials it produces:
+
+```text
+ListenSphere-Mobile-debug-<version>.apk
+ListenSphere-Mobile-release-unsigned-<version>.apk
+```
+
+With all four documented runtime signing variables it additionally supports a
+genuinely signed `ListenSphere-Mobile-<version>.apk`. The signed filename is
+used only after signature verification succeeds. Partial signing configuration
+and `-RequireSigned` without credentials fail immediately.
+
+Debug uses Android Debug signing and is for testing only. An unsigned Release
+uses the Release build type but is not a public signed release. AAB and Play
+Store publishing remain out of scope.
 
 ## Packaging workflow (P11-E)
 
