@@ -166,6 +166,7 @@ public sealed class GovernanceTests
         Assert.Contains("ListenSphereAndroidVersionCode", script, StringComparison.Ordinal);
         Assert.Contains("ListenSphere-Mobile-release-unsigned-$versionName.apk", script, StringComparison.Ordinal);
         Assert.DoesNotContain("0.6.0-beta.1", script, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"(?m)\b26\b", script);
         Assert.DoesNotContain("0.6.0-beta.1", gradle, StringComparison.Ordinal);
         Assert.DoesNotMatch(@"versionName\s*=\s*""", gradle);
         Assert.DoesNotMatch(@"versionCode\s*=\s*26\b", gradle);
