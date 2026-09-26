@@ -7,6 +7,9 @@ build/
 .kotlin/
 local.properties
 *.apk
+*.jks
+*.keystore
+keystore.properties
 *.log
 TestResults/
 *.user

@@ -53,7 +53,7 @@ Android 10（API 29）或更高版本才支持本项目使用的 AudioPlaybackCa
 
 当前自动门禁统计：
 
-- .NET tests：214/214。
+- .NET tests：215/215。
 - Android test files：17。
 - Android unit tests：36/36。
 
@@ -71,7 +71,7 @@ P11-B 已具备本地生成自包含 Controller 与 Sender `win-x64` 便携包�
 
 ## Android 安装
 
-当前阶段可从源码构建 Debug APK。Android 可能要求用户允许安装来自所用文件管理器或浏览器的未知应用。正式签名 APK 尚未提供，任何永久 keystore 都不会提交到本仓库。
+P11-D 已具备本地生成 Debug 和 Release APK 的能力。未配置 release keystore 时，Release APK 会明确标记为 `unsigned`；只有通过正式 keystore 签名验证后才使用正式文件名。正式用户下载仍待 Packaging CI / Release，任何永久 keystore 都不会提交到本仓库。
 
 ## 系统要求
 

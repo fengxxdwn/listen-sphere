@@ -17,6 +17,30 @@ fun listenSphereVersionProperty(name: String): String {
     return nodes.item(0).textContent.trim()
 }
 
+val releaseSigningEnvironmentNames = listOf(
+    "LISTENSPHERE_ANDROID_KEYSTORE_PATH",
+    "LISTENSPHERE_ANDROID_KEYSTORE_PASSWORD",
+    "LISTENSPHERE_ANDROID_KEY_ALIAS",
+    "LISTENSPHERE_ANDROID_KEY_PASSWORD",
+)
+val releaseSigningEnvironment = releaseSigningEnvironmentNames.associateWith { name ->
+    providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
+}
+val configuredReleaseSigningValues = releaseSigningEnvironment.values.count { it != null }
+check(configuredReleaseSigningValues == 0 ||
+    configuredReleaseSigningValues == releaseSigningEnvironmentNames.size) {
+    "Incomplete ListenSphere Android release signing configuration. " +
+        "Either provide all four signing values or none of them."
+}
+val releaseSigningEnabled = configuredReleaseSigningValues == releaseSigningEnvironmentNames.size
+val releaseKeystoreFile = releaseSigningEnvironment["LISTENSPHERE_ANDROID_KEYSTORE_PATH"]
+    ?.let(::file)
+if (releaseSigningEnabled) {
+    check(requireNotNull(releaseKeystoreFile).isFile) {
+        "ListenSphere Android release keystore does not exist: $releaseKeystoreFile"
+    }
+}
+
 android {
     namespace = "io.listensphere.mobile"
     compileSdk = 34
@@ -32,9 +56,24 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
 
+    signingConfigs {
+        if (releaseSigningEnabled) {
+            create("release") {
+                storeFile = requireNotNull(releaseKeystoreFile)
+                storePassword =
+                    releaseSigningEnvironment["LISTENSPHERE_ANDROID_KEYSTORE_PASSWORD"]
+                keyAlias = releaseSigningEnvironment["LISTENSPHERE_ANDROID_KEY_ALIAS"]
+                keyPassword = releaseSigningEnvironment["LISTENSPHERE_ANDROID_KEY_PASSWORD"]
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (releaseSigningEnabled) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
