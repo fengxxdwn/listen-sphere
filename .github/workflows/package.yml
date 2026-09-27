@@ -1,0 +1,269 @@
+name: Packaging
+
+on:
+  workflow_dispatch:
+    inputs:
+      android_signing:
+        description: 'unsigned = explicitly unsigned Release APK; signed = require production signing secrets'
+        required: true
+        default: unsigned
+        type: choice
+        options:
+          - unsigned
+          - signed
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Require main branch
+        shell: pwsh
+        run: |
+          if ('${{ github.ref }}' -ne 'refs/heads/main') {
+            throw 'Packaging workflow must be run from main.'
+          }
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Read product version
+        id: version
+        shell: pwsh
+        run: |
+          [xml] $document = Get-Content -LiteralPath 'eng/ListenSphere.Version.props' -Raw
+          $productNodes = @($document.SelectNodes('//ListenSphereProductVersion'))
+          $codeNodes = @($document.SelectNodes('//ListenSphereAndroidVersionCode'))
+          if ($productNodes.Count -ne 1 -or $codeNodes.Count -ne 1) {
+            throw 'Central product version values must each occur exactly once.'
+          }
+          $productVersion = $productNodes[0].InnerText.Trim()
+          $androidVersionCode = 0
+          if ([string]::IsNullOrWhiteSpace($productVersion) -or
+              -not [int]::TryParse($codeNodes[0].InnerText.Trim(), [ref] $androidVersionCode) -or
+              $androidVersionCode -le 0) {
+            throw 'Central product version metadata is invalid.'
+          }
+          "product_version=$productVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "android_version_code=$androidVersionCode" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Set up .NET SDK from global.json
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install SDK 34 and Build Tools 34
+        shell: pwsh
+        run: sdkmanager --install 'platforms;android-34' 'build-tools;34.0.0'
+
+      - name: Set up Gradle cache and validate wrapper
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Detect Inno Setup 6
+        id: inno
+        shell: pwsh
+        run: |
+          $candidates = @(
+            (Get-Command ISCC.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
+            'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
+            'C:\Program Files\Inno Setup 6\ISCC.exe'
+          ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }
+          $iscc = $candidates | Select-Object -First 1
+          if (-not $iscc) {
+            throw 'Inno Setup 6 ISCC.exe was not found on the runner.'
+          }
+          $bannerLines = @(& $iscc '/?' 2>&1)
+          $banner = $bannerLines | Where-Object { $_ -match '^Inno Setup ' } | Select-Object -First 1
+          if ($banner -notmatch '^Inno Setup (6(?:\.\d+(?:\.\d+)*)?)\s') {
+            throw "Packaging requires Inno Setup major version 6; found '$banner'."
+          }
+          $bannerVersion = $Matches[1]
+          $versionInfo = (Get-Item -LiteralPath $iscc).VersionInfo
+          $metadataVersion = $versionInfo.ProductVersion
+          $innoVersion = if ($metadataVersion -match '^6(?:\.\d+)+') {
+            $metadataVersion
+          } else {
+            $bannerVersion
+          }
+          Write-Output "Detected Inno Setup: $innoVersion"
+          "iscc_path=$iscc" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$innoVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Build Windows portable packages
+        shell: pwsh
+        run: ./scripts/Publish-ListenSphereWindows.ps1
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: ./scripts/Build-ListenSphereInstaller.ps1 -IsccPath '${{ steps.inno.outputs.iscc_path }}'
+
+      - name: Validate signed Android secrets and decode keystore
+        if: inputs.android_signing == 'signed'
+        shell: pwsh
+        env:
+          LISTENSPHERE_ANDROID_KEYSTORE: ${{ secrets.LISTENSPHERE_ANDROID_KEYSTORE }}
+          LISTENSPHERE_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.LISTENSPHERE_ANDROID_KEYSTORE_PASSWORD }}
+          LISTENSPHERE_ANDROID_KEY_ALIAS: ${{ secrets.LISTENSPHERE_ANDROID_KEY_ALIAS }}
+          LISTENSPHERE_ANDROID_KEY_PASSWORD: ${{ secrets.LISTENSPHERE_ANDROID_KEY_PASSWORD }}
+        run: |
+          $values = @(
+            $env:LISTENSPHERE_ANDROID_KEYSTORE,
+            $env:LISTENSPHERE_ANDROID_KEYSTORE_PASSWORD,
+            $env:LISTENSPHERE_ANDROID_KEY_ALIAS,
+            $env:LISTENSPHERE_ANDROID_KEY_PASSWORD
+          )
+          if ($values.Where({ -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 4) {
+            throw 'Signed Android packaging was requested but release signing secrets are incomplete.'
+          }
+          $keystorePath = Join-Path $env:RUNNER_TEMP 'listensphere-release.jks'
+          try {
+            [IO.File]::WriteAllBytes(
+              $keystorePath,
+              [Convert]::FromBase64String($env:LISTENSPHERE_ANDROID_KEYSTORE))
+          }
+          catch {
+            throw 'The Android release keystore secret is not valid base64.'
+          }
+          if ((Get-Item -LiteralPath $keystorePath).Length -eq 0) {
+            throw 'The decoded Android release keystore is empty.'
+          }
+
+      - name: Build Android packages (unsigned)
+        if: inputs.android_signing == 'unsigned'
+        shell: pwsh
+        run: ./scripts/Build-ListenSphereAndroid.ps1
+
+      - name: Build Android packages (signed)
+        if: inputs.android_signing == 'signed'
+        shell: pwsh
+        env:
+          LISTENSPHERE_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}\listensphere-release.jks
+          LISTENSPHERE_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.LISTENSPHERE_ANDROID_KEYSTORE_PASSWORD }}
+          LISTENSPHERE_ANDROID_KEY_ALIAS: ${{ secrets.LISTENSPHERE_ANDROID_KEY_ALIAS }}
+          LISTENSPHERE_ANDROID_KEY_PASSWORD: ${{ secrets.LISTENSPHERE_ANDROID_KEY_PASSWORD }}
+        run: ./scripts/Build-ListenSphereAndroid.ps1 -RequireSigned
+
+      - name: Validate final package set
+        shell: pwsh
+        run: ./scripts/Test-ListenSpherePackageSet.ps1 -AndroidSigning '${{ inputs.android_signing }}'
+
+      - name: Write packaging summary
+        shell: pwsh
+        run: |
+          $releaseDescription = if ('${{ inputs.android_signing }}' -eq 'signed') {
+            'SIGNED'
+          } else {
+            'UNSIGNED — not a public production release'
+          }
+          @"
+          # ListenSphere Packaging
+
+          - Product version: ${{ steps.version.outputs.product_version }}
+          - Android versionCode: ${{ steps.version.outputs.android_version_code }}
+          - Commit: ${{ github.sha }}
+          - Ref: ${{ github.ref }}
+          - Workflow run ID: ${{ github.run_id }}
+          - Android signing mode: ${{ inputs.android_signing }}
+          - Android Release: $releaseDescription
+          - Inno Setup: ${{ steps.inno.outputs.version }}
+
+          ## Artifacts
+
+          - Controller Portable
+          - Sender Portable
+          - Windows Installer
+          - Android Debug APK
+          - Android Release APK
+          - SHA256SUMS
+
+          ## Checksums
+
+          ~~~text
+          $(Get-Content -LiteralPath 'artifacts/packages/SHA256SUMS.txt' -Raw)
+          ~~~
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Upload Controller portable
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-controller-portable
+          path: artifacts/packages/ListenSphere-Controller-win-x64-${{ steps.version.outputs.product_version }}.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Sender portable
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-sender-portable
+          path: artifacts/packages/ListenSphere-Sender-win-x64-${{ steps.version.outputs.product_version }}.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-installer
+          path: artifacts/packages/ListenSphere-Setup-${{ steps.version.outputs.product_version }}-win-x64.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Android Debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-debug-apk
+          path: artifacts/packages/ListenSphere-Mobile-debug-${{ steps.version.outputs.product_version }}.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Android unsigned Release APK
+        if: inputs.android_signing == 'unsigned'
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-release-apk
+          path: artifacts/packages/ListenSphere-Mobile-release-unsigned-${{ steps.version.outputs.product_version }}.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Android signed Release APK
+        if: inputs.android_signing == 'signed'
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-release-apk
+          path: artifacts/packages/ListenSphere-Mobile-${{ steps.version.outputs.product_version }}.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v7
+        with:
+          name: checksums
+          path: artifacts/packages/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove temporary Android keystore
+        if: always()
+        shell: pwsh
+        run: |
+          $keystorePath = Join-Path $env:RUNNER_TEMP 'listensphere-release.jks'
+          if (Test-Path -LiteralPath $keystorePath) {
+            Remove-Item -LiteralPath $keystorePath -Force
+          }
+          if (Test-Path -LiteralPath $keystorePath) {
+            throw 'Temporary Android release keystore could not be removed.'
+          }

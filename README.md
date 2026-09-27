@@ -59,7 +59,7 @@ Android 10（API 29）或更高版本才支持本项目使用的 AudioPlaybackCa
 
 ## 下载
 
-P11-C 已具备本地生成 Windows Installer 的能力；正式用户下载仍待 Packaging CI / Release。仓库根目录中的历史测试包不应视为正式发布。
+P11-C 已具备本地生成 Windows Installer 的能力；P11-E 已提供 GitHub Actions 手动 Packaging Workflow，可从成功运行的六组 Actions Artifacts 下载候选包。它们不是正式 GitHub Release。仓库根目录中的历史测试包不应视为正式发布。
 
 ## Windows 安装
 
@@ -67,11 +67,11 @@ P11-C 已具备本地生成 Windows Installer 的能力；正式用户下载仍�
 
 ## Windows 便携版
 
-P11-B 已具备本地生成自包含 Controller 与 Sender `win-x64` 便携包的能力，不要求用户单独安装 .NET Runtime；正式用户下载仍待 Packaging CI / Release。
+P11-B 已具备本地生成自包含 Controller 与 Sender `win-x64` 便携包的能力，不要求用户单独安装 .NET Runtime；P11-E 手动 Packaging Workflow 会上传对应 Actions Artifacts。
 
 ## Android 安装
 
-P11-D 已具备本地生成 Debug 和 Release APK 的能力。未配置 release keystore 时，Release APK 会明确标记为 `unsigned`；只有通过正式 keystore 签名验证后才使用正式文件名。正式用户下载仍待 Packaging CI / Release，任何永久 keystore 都不会提交到本仓库。
+P11-D 已具备本地生成 Debug 和 Release APK 的能力。未配置 release keystore 时，Release APK 会明确标记为 `unsigned`；只有通过正式 keystore 签名验证后才使用正式文件名。P11-E 手动 Packaging Workflow 默认上传 Debug 与 unsigned Release Actions Artifacts；任何永久 keystore 都不会提交到本仓库，正式 GitHub Release 仍未创建。
 
 ## 系统要求
 

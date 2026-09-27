@@ -180,6 +180,59 @@ public sealed class GovernanceTests
         Assert.Contains("keystore.properties", gitignore, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void PackagingWorkflow_IsManualReadOnlyAndUsesApprovedScripts()
+    {
+        string root = FindRepository();
+        string workflowPath = Path.Combine(root, ".github", "workflows", "package.yml");
+        string validatorPath = Path.Combine(root, "scripts", "Test-ListenSpherePackageSet.ps1");
+        Assert.True(File.Exists(workflowPath), $"Packaging workflow is missing: {workflowPath}");
+        Assert.True(File.Exists(validatorPath), $"Package-set validator is missing: {validatorPath}");
+
+        string workflow = File.ReadAllText(workflowPath);
+        Assert.Contains("workflow_dispatch:", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("pull_request:", workflow, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"(?m)^\s*push\s*:", workflow);
+        Assert.DoesNotMatch(@"(?m)^\s*schedule\s*:", workflow);
+        Assert.Contains("contents: read", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("contents: write", workflow, StringComparison.Ordinal);
+        Assert.Contains("timeout-minutes: 90", workflow, StringComparison.Ordinal);
+        Assert.Contains("global-json-file: global.json", workflow, StringComparison.Ordinal);
+        Assert.Contains("eng/ListenSphere.Version.props", workflow, StringComparison.Ordinal);
+        Assert.Contains("./scripts/Publish-ListenSphereWindows.ps1", workflow, StringComparison.Ordinal);
+        Assert.Contains("./scripts/Build-ListenSphereInstaller.ps1", workflow, StringComparison.Ordinal);
+        Assert.Contains("./scripts/Build-ListenSphereAndroid.ps1", workflow, StringComparison.Ordinal);
+        Assert.Contains("./scripts/Test-ListenSpherePackageSet.ps1", workflow, StringComparison.Ordinal);
+        Assert.Contains("actions/upload-artifact@v7", workflow, StringComparison.Ordinal);
+        Assert.Contains("if-no-files-found: error", workflow, StringComparison.Ordinal);
+        Assert.Contains("Remove temporary Android keystore", workflow, StringComparison.Ordinal);
+        Assert.Contains("if: always()", workflow, StringComparison.Ordinal);
+        Assert.Contains("-RequireSigned", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("continue-on-error", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("actions/create-release", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("action-gh-release", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("gh release", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("git tag", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("0.6.0-beta.1", workflow, StringComparison.Ordinal);
+
+        foreach (string secretName in new[]
+        {
+            "LISTENSPHERE_ANDROID_KEYSTORE",
+            "LISTENSPHERE_ANDROID_KEYSTORE_PASSWORD",
+            "LISTENSPHERE_ANDROID_KEY_ALIAS",
+            "LISTENSPHERE_ANDROID_KEY_PASSWORD"
+        })
+        {
+            Assert.Contains($"secrets.{secretName}", workflow, StringComparison.Ordinal);
+        }
+
+        string validator = File.ReadAllText(validatorPath);
+        Assert.Contains("eng/ListenSphere.Version.props", validator, StringComparison.Ordinal);
+        Assert.Contains("SHA256SUMS.txt must not hash itself", validator, StringComparison.Ordinal);
+        Assert.Contains("Get-FileHash", validator, StringComparison.Ordinal);
+        Assert.DoesNotContain("0.6.0-beta.1", validator, StringComparison.Ordinal);
+    }
+
     private static string[] GetProjectReferences(string project)
     {
         XDocument document = XDocument.Load(project);
