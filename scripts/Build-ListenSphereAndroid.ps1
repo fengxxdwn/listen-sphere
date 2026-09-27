@@ -200,6 +200,9 @@ function Test-ApkSignature {
     $arguments += $ApkPath
     $output = @(& $ApkSigner @arguments 2>&1)
     $exitCode = $LASTEXITCODE
+    # Signature verification failure is expected for an unsigned Release APK.
+    # Preserve it in the result without leaking a handled native exit code to pwsh.
+    $global:LASTEXITCODE = 0
     return [pscustomobject]@{
         IsValid = $exitCode -eq 0
         Output = $output
