@@ -88,6 +88,11 @@ jobs:
             throw 'Inno Setup 6 ISCC.exe was not found on the runner.'
           }
           $bannerLines = @(& $iscc '/?' 2>&1)
+          $isccHelpExitCode = $LASTEXITCODE
+          if ($isccHelpExitCode -notin @(0, 1)) {
+            throw "ISCC.exe version probe failed with exit code $isccHelpExitCode."
+          }
+          $global:LASTEXITCODE = 0
           $banner = $bannerLines | Where-Object { $_ -match '^Inno Setup ' } | Select-Object -First 1
           if ($banner -notmatch '^Inno Setup (6(?:\.\d+(?:\.\d+)*)?)\s') {
             throw "Packaging requires Inno Setup major version 6; found '$banner'."
