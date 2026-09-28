@@ -25,10 +25,12 @@ a new Packaging run plus affected RC retesting.
 | `ListenSphere-Mobile-debug-0.6.0-beta.1.apk` | 55,965,485 | `2442762ee9aa0a02fdf918a404d642d2ab178b167343c3b3132671e4bdcba38a` | PASS |
 | `ListenSphere-Mobile-release-unsigned-0.6.0-beta.1.apk` | 40,725,113 | `c3c6aebdbd41c914fa62bbebb0a4a02faf167664f89ae6ad61a7569341dd8261` | PASS |
 
-AUTOMATED: filenames, uniqueness, non-zero sizes, SHA-256 values, portable ZIP
-layout, Windows version metadata/icons, installer metadata, APK contents and
-metadata, Debug signature, and expected unsigned Release state are validated by
-`scripts/Test-ListenSphereReleaseCandidate.ps1`.
+AUTOMATED: the expected commit and Packaging run must match the committed RC
+manifest. Each artifact's actual SHA-256 must then match both `SHA256SUMS.txt`
+and that committed manifest before filenames, uniqueness, non-zero sizes,
+portable ZIP layout, Windows version metadata/icons, installer metadata, APK
+contents and metadata, Debug signature, and expected unsigned Release state are
+validated by `scripts/Test-ListenSphereReleaseCandidate.ps1`.
 
 Additional verification on the P11-F branch:
 

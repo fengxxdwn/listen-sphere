@@ -25,6 +25,55 @@ function Resolve-UniqueArtifact {
     return $matches[0]
 }
 
+function Get-CommittedRcManifest {
+    param(
+        [string] $RepositoryRoot,
+        [string] $RelativePath
+    )
+
+    $trackedOutput = @(& git -C $RepositoryRoot ls-files --error-unmatch -- $RelativePath 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "RC manifest must be committed to Git: $RelativePath`n$($trackedOutput -join [Environment]::NewLine)"
+    }
+    $lines = @(& git -C $RepositoryRoot show "HEAD:$RelativePath" 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to read committed RC manifest from HEAD: $RelativePath"
+    }
+    $text = $lines -join [Environment]::NewLine
+
+    $sourceMatches = [regex]::Matches($text, '(?m)^- Source commit:\s+`([0-9a-fA-F]{40})`\s*$')
+    $runMatches = [regex]::Matches($text, '(?m)^- Packaging run:\s+`([0-9]+)`\s*$')
+    if ($sourceMatches.Count -ne 1 -or $runMatches.Count -ne 1) {
+        throw 'Committed RC manifest must contain exactly one Source commit and one Packaging run.'
+    }
+
+    $artifactHashes = @{}
+    $artifactRows = [regex]::Matches(
+        $text,
+        '(?m)^\|\s*`([^`]+)`\s*\|\s*`([0-9a-fA-F]{64})`\s*\|\s*$')
+    foreach ($row in $artifactRows) {
+        $name = $row.Groups[1].Value
+        if ([IO.Path]::IsPathRooted($name) -or $name -ne [IO.Path]::GetFileName($name)) {
+            throw "RC manifest artifact must be a filename only: $name"
+        }
+        if ($artifactHashes.ContainsKey($name)) {
+            throw "RC manifest contains a duplicate artifact: $name"
+        }
+        $artifactHashes[$name] = $row.Groups[2].Value.ToLowerInvariant()
+    }
+    if ($artifactHashes.Count -ne 5) {
+        throw "Committed RC manifest must contain exactly 5 artifact hashes; found $($artifactHashes.Count)."
+    }
+
+    return [pscustomobject]@{
+        SourceCommit = $sourceMatches[0].Groups[1].Value.ToLowerInvariant()
+        PackagingRun = [long]::Parse(
+            $runMatches[0].Groups[1].Value,
+            [Globalization.CultureInfo]::InvariantCulture)
+        ArtifactHashes = $artifactHashes
+    }
+}
+
 function Resolve-AndroidSdk {
     param([string] $AndroidProject)
     $candidates = [Collections.Generic.List[string]]::new()
@@ -166,13 +215,28 @@ $versionCodeText = Get-UniqueXmlValue $versionDocument 'ListenSphereAndroidVersi
 $versionCode = 0
 if (-not [int]::TryParse($versionCodeText, [ref] $versionCode) -or $versionCode -le 0) { throw "ListenSphereAndroidVersionCode must be a positive integer: $versionCodeText" }
 
-$expectedNames = @(
+$rcManifestPath = 'docs/release/p11-f-rc-manifest.md'
+$rcManifest = Get-CommittedRcManifest $repositoryRoot $rcManifestPath
+if ($ExpectedCommit.ToLowerInvariant() -ne $rcManifest.SourceCommit) {
+    throw "ExpectedCommit '$ExpectedCommit' does not match committed RC manifest Source commit '$($rcManifest.SourceCommit)'."
+}
+if ($ExpectedPackagingRun -ne $rcManifest.PackagingRun) {
+    throw "ExpectedPackagingRun '$ExpectedPackagingRun' does not match committed RC manifest Packaging run '$($rcManifest.PackagingRun)'."
+}
+
+$requiredNames = @(
     "ListenSphere-Controller-win-x64-$version.zip",
     "ListenSphere-Sender-win-x64-$version.zip",
     "ListenSphere-Setup-$version-win-x64.exe",
     "ListenSphere-Mobile-debug-$version.apk",
     "ListenSphere-Mobile-release-unsigned-$version.apk"
 )
+$missingManifestNames = @($requiredNames | Where-Object { -not $rcManifest.ArtifactHashes.ContainsKey($_) })
+$unexpectedManifestNames = @($rcManifest.ArtifactHashes.Keys | Where-Object { $_ -notin $requiredNames })
+if ($missingManifestNames.Count -ne 0 -or $unexpectedManifestNames.Count -ne 0) {
+    throw "RC manifest artifact set does not match this product version. Missing: $($missingManifestNames -join ', '); unexpected: $($unexpectedManifestNames -join ', ')."
+}
+$expectedNames = @($requiredNames)
 $artifacts = @{}
 foreach ($name in $expectedNames) { $artifacts[$name] = Resolve-UniqueArtifact $artifactRoot $name }
 $allPackages = @(Get-ChildItem -LiteralPath $artifactRoot -File -Recurse | Where-Object { $_.Name -like 'ListenSphere-*' -and $_.Extension -in @('.zip', '.exe', '.apk') })
@@ -181,18 +245,22 @@ if ($unexpected.Count -ne 0) { throw "Unexpected or stale ListenSphere packages 
 if ($allPackages.Count -ne $expectedNames.Count) { throw "Expected exactly $($expectedNames.Count) candidate packages; found $($allPackages.Count)." }
 
 $checksum = Resolve-UniqueArtifact $artifactRoot 'SHA256SUMS.txt'
-$manifest = @{}
+$checksumManifest = @{}
 foreach ($line in Get-Content -LiteralPath $checksum.FullName) {
     if ([string]::IsNullOrWhiteSpace($line)) { continue }
     if ($line -notmatch '^([0-9A-Fa-f]{64})  ([^\\/]+)$') { throw "Invalid SHA256SUMS entry: $line" }
-    if ($Matches[2] -eq 'SHA256SUMS.txt' -or $manifest.ContainsKey($Matches[2])) { throw "Invalid or duplicate SHA256SUMS filename: $($Matches[2])" }
-    $manifest[$Matches[2]] = $Matches[1].ToLowerInvariant()
+    if ($Matches[2] -eq 'SHA256SUMS.txt' -or $checksumManifest.ContainsKey($Matches[2])) { throw "Invalid or duplicate SHA256SUMS filename: $($Matches[2])" }
+    $checksumManifest[$Matches[2]] = $Matches[1].ToLowerInvariant()
 }
-if ($manifest.Count -ne $expectedNames.Count) { throw "SHA256SUMS.txt must contain exactly $($expectedNames.Count) entries; found $($manifest.Count)." }
+if ($checksumManifest.Count -ne $expectedNames.Count) { throw "SHA256SUMS.txt must contain exactly $($expectedNames.Count) entries; found $($checksumManifest.Count)." }
 foreach ($name in $expectedNames) {
-    if (-not $manifest.ContainsKey($name)) { throw "SHA256SUMS.txt is missing: $name" }
-    $actual = (Get-FileHash -LiteralPath $artifacts[$name].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actual -ne $manifest[$name]) { throw "SHA256 mismatch: $name" }
+    if (-not $checksumManifest.ContainsKey($name)) { throw "SHA256SUMS.txt is missing: $name" }
+    $actualHash = (Get-FileHash -LiteralPath $artifacts[$name].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    $checksumHash = $checksumManifest[$name]
+    $rcManifestHash = $rcManifest.ArtifactHashes[$name]
+    if ($actualHash -ne $checksumHash -or $actualHash -ne $rcManifestHash) {
+        throw "SHA256 trust-chain mismatch for '$name'. Actual: $actualHash; SHA256SUMS.txt: $checksumHash; RC manifest: $rcManifestHash."
+    }
 }
 
 $androidSdk = Resolve-AndroidSdk (Join-Path $repositoryRoot 'apps/ListenSphere.Mobile')
@@ -233,7 +301,8 @@ Write-Output "Android versionCode: $versionCode"
 Write-Output "Expected source commit: $($ExpectedCommit.ToLowerInvariant())"
 Write-Output "Expected packaging run: $ExpectedPackagingRun"
 Write-Output "Candidate packages: $($expectedNames.Count)"
-foreach ($name in $expectedNames) { Write-Output "$($manifest[$name])  $name" }
+Write-Output "Committed RC manifest: $rcManifestPath"
+foreach ($name in $expectedNames) { Write-Output "$($rcManifest.ArtifactHashes[$name])  $name" }
 Write-Output 'Windows portable structure and metadata: PASS'
 Write-Output 'Installer metadata: PASS'
 Write-Output 'Android Debug metadata/signature: PASS'

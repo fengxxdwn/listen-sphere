@@ -246,6 +246,11 @@ public sealed class GovernanceTests
         Assert.Contains("ExpectedCommit", script, StringComparison.Ordinal);
         Assert.Contains("ExpectedPackagingRun", script, StringComparison.Ordinal);
         Assert.Contains("Get-FileHash", script, StringComparison.Ordinal);
+        Assert.Contains("docs/release/p11-f-rc-manifest.md", script, StringComparison.Ordinal);
+        Assert.Contains("git -C $RepositoryRoot show", script, StringComparison.Ordinal);
+        Assert.Contains("does not match committed RC manifest Source commit", script, StringComparison.Ordinal);
+        Assert.Contains("does not match committed RC manifest Packaging run", script, StringComparison.Ordinal);
+        Assert.Contains("SHA256 trust-chain mismatch", script, StringComparison.Ordinal);
         Assert.Contains("AUTOMATED RESULT: PASS", script, StringComparison.Ordinal);
         Assert.Contains("MANUAL RESULT: NOT TESTED BY THIS SCRIPT", script, StringComparison.Ordinal);
         Assert.DoesNotContain("0.6.0-beta.1", script, StringComparison.Ordinal);

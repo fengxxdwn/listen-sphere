@@ -13,7 +13,7 @@ evidence applies only to source commit
 - [PASS] Release build and .NET tests — Packaging run retained the full build/test gates.
 - [PASS] Android unit tests — Packaging run retained Debug and Release unit-test gates.
 - [PASS] Protocol and architecture tests — included in the Windows test gate.
-- [PASS] Five candidate packages exist, are non-empty, and match `SHA256SUMS.txt`.
+- [PASS] Five candidate packages exist, are non-empty, and their actual hashes match both `SHA256SUMS.txt` and the committed RC manifest.
 - [PASS] Windows portable structure and executable metadata validation.
 - [PASS] Installer version-resource metadata validation.
 - [PASS] Android package metadata, Debug signature, and expected unsigned Release state.
