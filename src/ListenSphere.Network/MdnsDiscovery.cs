@@ -166,7 +166,7 @@ public sealed class MdnsControllerPublisher : IDisposable
         disposed = true;
     }
 
-    private static ServiceProfile CreateProfile(
+    internal static ServiceProfile CreateProfile(
         LocalDeviceIdentity identity,
         int controlPort,
         IPAddress[] addresses)
@@ -180,7 +180,11 @@ public sealed class MdnsControllerPublisher : IDisposable
             "pv",
             $"{identity.Device.ProtocolMajor}.{identity.Device.ProtocolMinor}");
         profile.AddProperty("id", identity.Device.DeviceId.ToString("D"));
-        profile.AddProperty("name", identity.Device.DisplayName);
+        // MeaMod.DNS serializes TXT strings as ASCII. The full Unicode display
+        // name remains available through the authenticated control identity.
+        profile.AddProperty(
+            "name",
+            $"ListenSphere Controller {identity.Device.DeviceId:N}");
         profile.AddProperty(
             "platform",
             identity.Device.Platform.ToString().ToLowerInvariant());
