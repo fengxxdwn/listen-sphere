@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     private Task initializationTask = Task.CompletedTask;
     private bool shutdownStarted;
     private bool shutdownComplete;
+    private bool exitRequested;
 
     public MainWindow(ControllerViewModel viewModel)
     {
@@ -24,11 +25,49 @@ public partial class MainWindow : Window
         DataContext = viewModel;
         Loaded += OnLoaded;
         Closing += OnClosing;
+        StateChanged += OnStateChanged;
         SourceInitialized += OnSourceInitialized;
+    }
+
+    public event EventHandler? MinimizedToTray;
+
+    public void ShowAndActivate()
+    {
+        if (!IsVisible)
+        {
+            Show();
+        }
+
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        Activate();
+        Topmost = true;
+        Topmost = false;
+        Focus();
+    }
+
+    public void RequestExit()
+    {
+        exitRequested = true;
+        Close();
     }
 
     private void OnSourceInitialized(object? sender, EventArgs args) =>
         DwmWindowAppearance.TryEnableRoundedCorners(new WindowInteropHelper(this).Handle);
+
+    private void OnStateChanged(object? sender, EventArgs args)
+    {
+        if (WindowState != WindowState.Minimized || exitRequested)
+        {
+            return;
+        }
+
+        Hide();
+        MinimizedToTray?.Invoke(this, EventArgs.Empty);
+    }
 
     private async void OnLoaded(object sender, RoutedEventArgs args)
     {
@@ -45,12 +84,20 @@ public partial class MainWindow : Window
                 "聆界",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
-            _ = Dispatcher.BeginInvoke(Close);
+            _ = Dispatcher.BeginInvoke(RequestExit);
         }
     }
 
     private async void OnClosing(object? sender, CancelEventArgs args)
     {
+        if (!exitRequested)
+        {
+            args.Cancel = true;
+            Hide();
+            MinimizedToTray?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
         if (shutdownComplete)
         {
             return;
@@ -85,6 +132,7 @@ public partial class MainWindow : Window
         {
             shutdownComplete = true;
             Close();
+            Application.Current.Shutdown();
         }
     }
 }
