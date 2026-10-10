@@ -172,7 +172,7 @@ public sealed class SettingsMigrationTests
     public async Task FutureSchemaWithChangedFieldTypes_IsPreserved()
     {
         using var fixture = new TempSettings();
-        string json = """{"Version":17,"masterVolume":{"newFormat":true},"scenes":"new-schema"}""";
+        string json = """{"Version":18,"masterVolume":{"newFormat":true},"scenes":"new-schema"}""";
         await File.WriteAllTextAsync(fixture.Path, json, TestContext.Current.CancellationToken);
         var store = new JsonSettingsStore(fixture.Path);
         await store.LoadAsync(TestContext.Current.CancellationToken);
