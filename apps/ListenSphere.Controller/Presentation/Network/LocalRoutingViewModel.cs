@@ -3,6 +3,7 @@ namespace ListenSphere.Controller;
 public sealed class LocalRoutingViewModel(ControllerNetworkRuntime runtime)
     : NetworkPresentationModel(runtime)
 {
+    public LocalSourceEqualizerViewModel Equalizer => Runtime.LocalSourceEqualizer;
     public float LocalSourceVolumePercent
     {
         get => Runtime.LocalSourceVolumePercent;

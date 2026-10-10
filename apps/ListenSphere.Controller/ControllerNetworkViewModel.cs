@@ -159,6 +159,10 @@ public sealed class ControllerNetworkViewModel : IAsyncDisposable
         bool microphoneMonitoringEnabled = false,
         float localSourceVolume = 1f,
         bool localSourceMuted = false,
+        bool localSourceEqualizerEnabled = true,
+        string? localSourceEqualizerPreset = "原声",
+        IReadOnlyList<float>? localSourceEqualizerGains = null,
+        float localSourceEqualizerStrength = 1f,
         string? preferredMicrophoneMonitoringDeviceId = null,
         bool microphoneOutputEnabled = false,
         string? preferredComputerMicrophoneDeviceId = null) =>
@@ -176,6 +180,10 @@ public sealed class ControllerNetworkViewModel : IAsyncDisposable
             microphoneMonitoringEnabled,
             localSourceVolume,
             localSourceMuted,
+            localSourceEqualizerEnabled,
+            localSourceEqualizerPreset,
+            localSourceEqualizerGains,
+            localSourceEqualizerStrength,
             preferredMicrophoneMonitoringDeviceId,
             microphoneOutputEnabled,
             preferredComputerMicrophoneDeviceId);

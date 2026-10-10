@@ -161,6 +161,15 @@ public sealed class JsonSettingsStore(string path) : ISettingsStore
     {
         MasterVolume = Math.Clamp(settings.MasterVolume, 0f, 1f),
         LocalSourceVolume = Math.Clamp(settings.LocalSourceVolume, 0f, 1f),
+        LocalSourceEqualizerPreset = string.IsNullOrWhiteSpace(settings.LocalSourceEqualizerPreset)
+            ? "原声"
+            : settings.LocalSourceEqualizerPreset.Trim(),
+        LocalSourceEqualizerGains = settings.LocalSourceEqualizerGains is { Length: 10 }
+            ? settings.LocalSourceEqualizerGains
+                .Select(gain => Math.Clamp(gain, -20f, 20f))
+                .ToArray()
+            : new float[10],
+        LocalSourceEqualizerStrength = Math.Clamp(settings.LocalSourceEqualizerStrength, 0f, 1f),
         Scenes = (settings.Scenes ?? [])
             .Where(scene => scene is not null && scene.SceneId != Guid.Empty && !string.IsNullOrWhiteSpace(scene.Name))
             .Select(scene => scene with

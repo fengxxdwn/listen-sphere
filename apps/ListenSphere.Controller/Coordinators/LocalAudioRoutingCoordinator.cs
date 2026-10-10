@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using ListenSphere.Audio.Abstractions;
 using ListenSphere.Audio.Engine;
 using ListenSphere.Configuration;
@@ -82,6 +83,9 @@ internal sealed class LocalAudioRoutingCoordinator : IAsyncDisposable
     private string? systemCaptureDeviceId;
     private LocalAudioRoutingSnapshot snapshot = LocalAudioRoutingSnapshot.Empty;
     private float localGain = 1f;
+    private readonly GraphicEqualizer localEqualizer = new();
+    private float[] localEqualizerGains = new float[10];
+    private bool localEqualizerEnabled = true;
     private bool disposed;
 
     public LocalAudioRoutingCoordinator(
@@ -119,6 +123,31 @@ internal sealed class LocalAudioRoutingCoordinator : IAsyncDisposable
 
     public void SetLocalSourceGain(float volume, bool isMuted) =>
         Volatile.Write(ref localGain, isMuted ? 0f : Math.Clamp(volume, 0f, 1f));
+
+    public void SetLocalSourceEqualizer(bool enabled, IReadOnlyList<float> gains)
+    {
+        ArgumentNullException.ThrowIfNull(gains);
+        if (gains.Count != GraphicEqualizer.Frequencies.Length)
+        {
+            throw new ArgumentException("本机均衡器需要十个频段。", nameof(gains));
+        }
+
+        Volatile.Write(
+            ref localEqualizerGains,
+            gains.Select(gain => Math.Clamp(gain, -20f, 20f)).ToArray());
+        Volatile.Write(ref localEqualizerEnabled, enabled);
+    }
+
+    private void ProcessLocalSource(Guid channelId, Span<byte> pcm)
+    {
+        if (channelId == localSoundChannelId && Volatile.Read(ref localEqualizerEnabled))
+        {
+            localEqualizer.Process(
+                MemoryMarshal.Cast<byte, float>(pcm),
+                Volatile.Read(ref localEqualizerGains));
+        }
+        PcmGainProcessor.Apply(pcm, Volatile.Read(ref localGain));
+    }
 
     public IReadOnlyList<AudioOutputRouteSettings> CaptureRoutes() =>
         configuredRoutes.Values.ToArray();
@@ -630,7 +659,7 @@ internal sealed class LocalAudioRoutingCoordinator : IAsyncDisposable
         public async ValueTask WriteAsync(AudioFrame frame, CancellationToken cancellationToken)
         {
             byte[] pcm = frame.Data.ToArray();
-            PcmGainProcessor.Apply(pcm, Volatile.Read(ref owner.localGain));
+            owner.ProcessLocalSource(channelId, pcm);
             await owner.WriteAsync(channelId, pcm, frame.Timestamp, cancellationToken)
                 .ConfigureAwait(false);
         }

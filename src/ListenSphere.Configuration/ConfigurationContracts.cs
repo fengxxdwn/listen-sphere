@@ -106,7 +106,7 @@ public sealed record SceneSettings(
 
 public sealed record ListenSphereSettings
 {
-    public const int CurrentVersion = 15;
+    public const int CurrentVersion = 17;
 
     public int Version { get; init; } = CurrentVersion;
     public string? PlaybackDeviceId { get; init; }
@@ -114,6 +114,10 @@ public sealed record ListenSphereSettings
     public float MasterVolume { get; init; } = 1f;
     public float LocalSourceVolume { get; init; } = 1f;
     public bool LocalSourceMuted { get; init; }
+    public bool LocalSourceEqualizerEnabled { get; init; } = true;
+    public string LocalSourceEqualizerPreset { get; init; } = "原声";
+    public float[] LocalSourceEqualizerGains { get; init; } = new float[10];
+    public float LocalSourceEqualizerStrength { get; init; } = 1f;
     public bool FirstRunCompleted { get; init; }
     public IReadOnlyList<SceneSettings> Scenes { get; init; } = [];
     public IReadOnlyList<Guid> PairedDeviceIds { get; init; } = [];

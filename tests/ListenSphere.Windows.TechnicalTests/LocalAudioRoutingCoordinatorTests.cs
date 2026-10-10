@@ -143,6 +143,37 @@ public sealed class LocalAudioRoutingCoordinatorTests
     }
 
     [Fact]
+    public async Task LocalSourceEqualizer_ProcessesSystemLoopbackAndCanBeBypassed()
+    {
+        var primary = new TestAudioDevice("primary", "Primary", true);
+        var secondary = new TestAudioDevice("secondary", "Secondary", false);
+        var runtime = new FakeLocalAudioRoutingRuntime();
+        await using var coordinator = new LocalAudioRoutingCoordinator(runtime, LocalSoundChannelId);
+        await coordinator.UpdateOutputDevicesAsync(
+            [primary, secondary], [], primary.Id, TestContext.Current.CancellationToken);
+        coordinator.SetLocalSourceEqualizer(true, [0, 0, 12, 0, 0, 0, 0, 0, 0, 0]);
+        Assert.True(await coordinator.AddRouteAsync(
+            LocalSoundChannelId,
+            secondary.Id,
+            "本地声音",
+            TestContext.Current.CancellationToken));
+        byte[] pcm = Enumerable.Range(0, 192)
+            .SelectMany(index => BitConverter.GetBytes(index % 2 == 0 ? 0.25f : -0.25f))
+            .ToArray();
+
+        await Assert.Single(runtime.SystemCaptures).EmitAsync(pcm);
+
+        AudioFrame processed = Assert.Single(Assert.Single(runtime.Playbacks).Frames);
+        Assert.False(processed.Data.Span.SequenceEqual(pcm));
+
+        coordinator.SetLocalSourceEqualizer(false, [0, 0, 12, 0, 0, 0, 0, 0, 0, 0]);
+        byte[] bypassedPcm = pcm.ToArray();
+        await Assert.Single(runtime.SystemCaptures).EmitAsync(bypassedPcm);
+        AudioFrame bypassed = Assert.Single(runtime.Playbacks).Frames[1];
+        Assert.True(bypassed.Data.Span.SequenceEqual(pcm));
+    }
+
+    [Fact]
     public async Task RouteMutations_DoNotSynchronouslyBlockTheCallingThread()
     {
         var primary = new TestAudioDevice("primary", "Primary", true);

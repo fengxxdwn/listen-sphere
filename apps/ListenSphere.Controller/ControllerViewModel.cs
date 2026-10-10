@@ -107,6 +107,10 @@ public sealed class ControllerViewModel : ObservableViewModel, IAsyncDisposable
             settings.MicrophoneMonitoringEnabled,
             settings.LocalSourceVolume,
             settings.LocalSourceMuted,
+            settings.LocalSourceEqualizerEnabled,
+            settings.LocalSourceEqualizerPreset,
+            settings.LocalSourceEqualizerGains,
+            settings.LocalSourceEqualizerStrength,
             settings.MicrophoneMonitoringDeviceId,
             settings.MicrophoneOutputEnabled,
             settings.ComputerMicrophoneDeviceId);
@@ -135,7 +139,11 @@ public sealed class ControllerViewModel : ObservableViewModel, IAsyncDisposable
         MicrophoneMonitoringEnabled = Network.MicrophoneMonitoringEnabled,
         MicrophoneMonitoringDeviceId = Network.SelectedMicrophoneMonitoringDevice?.Id,
         LocalSourceVolume = Network.LocalSourceVolumePercent / 100,
-        LocalSourceMuted = Network.IsLocalSourceMuted
+        LocalSourceMuted = Network.IsLocalSourceMuted,
+        LocalSourceEqualizerEnabled = Network.LocalRouting.Equalizer.IsEqualizerEnabled,
+        LocalSourceEqualizerPreset = Network.LocalRouting.Equalizer.SelectedEqualizerPreset.Name,
+        LocalSourceEqualizerGains = Network.LocalRouting.Equalizer.EqualizerGains.ToArray(),
+        LocalSourceEqualizerStrength = Network.LocalRouting.Equalizer.EffectStrengthPercent / 100f
     };
 
     private void OnLocalSettingsChanged(object? sender, EventArgs args) =>

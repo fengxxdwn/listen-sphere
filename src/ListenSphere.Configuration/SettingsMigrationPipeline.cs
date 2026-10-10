@@ -1,7 +1,7 @@
 namespace ListenSphere.Configuration;
 
 public sealed class UnsupportedSettingsVersionException(int version) : Exception(
-    $"设置版本 {version} 不兼容（支持 v10–v15）；本次使用默认设置，原文件保留且不会自动保存。")
+    $"设置版本 {version} 不兼容（支持 v10–v17）；本次使用默认设置，原文件保留且不会自动保存。")
 {
     public int Version { get; } = version;
 }
@@ -12,7 +12,8 @@ public sealed class SettingsMigrationPipeline
     public IReadOnlyList<ISettingsMigration> Steps { get; } =
         Array.AsReadOnly<ISettingsMigration>([
             new VersionStep(10), new VersionStep(11), new VersionStep(12),
-            new VersionStep(13), new VersionStep(14)]);
+            new VersionStep(13), new VersionStep(14), new VersionStep(15),
+            new VersionStep(16)]);
 
     public ListenSphereSettings Migrate(ListenSphereSettings settings)
     {
