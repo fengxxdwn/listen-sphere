@@ -23,6 +23,7 @@ public partial class App : Application
     private ServiceProvider? serviceProvider;
     private LocalDeviceIdentity? localIdentity;
     private SingleInstanceGuard? singleInstance;
+    private TrayIconService? trayIcon;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -91,13 +92,25 @@ public partial class App : Application
             });
 
         Log.Information("ListenSphere Controller P6 started");
-        MainWindow = serviceProvider.GetRequiredService<MainWindow>();
-        MainWindow.Show();
+        var mainWindow = serviceProvider.GetRequiredService<MainWindow>();
+        MainWindow = mainWindow;
+        trayIcon = new TrayIconService(
+            mainWindow,
+            serviceProvider.GetRequiredService<ControllerViewModel>(),
+            mainWindow.RequestExit);
+        mainWindow.MinimizedToTray += OnMainWindowMinimizedToTray;
+        mainWindow.Show();
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
         Log.Information("ListenSphere Controller P6 stopped");
+        if (MainWindow is MainWindow mainWindow)
+        {
+            mainWindow.MinimizedToTray -= OnMainWindowMinimizedToTray;
+        }
+        trayIcon?.Dispose();
+        trayIcon = null;
         DispatcherUnhandledException -= OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException -= OnUnhandledException;
         TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
@@ -107,6 +120,9 @@ public partial class App : Application
         singleInstance?.Dispose();
         base.OnExit(e);
     }
+
+    private void OnMainWindowMinimizedToTray(object? sender, EventArgs args) =>
+        trayIcon?.ShowBackgroundNotification();
 
     private static void OnDispatcherUnhandledException(
         object sender,

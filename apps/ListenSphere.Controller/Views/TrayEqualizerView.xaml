@@ -1,0 +1,93 @@
+<UserControl x:Class="ListenSphere.Controller.Views.TrayEqualizerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             MinWidth="340">
+    <StackPanel Margin="0,8,0,2">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <CheckBox VerticalAlignment="Center"
+                      AutomationProperties.Name="启用均衡器"
+                      Content="EQ"
+                      IsChecked="{Binding IsEqualizerEnabled, Mode=TwoWay}" />
+            <ComboBox Grid.Column="1"
+                      Height="28"
+                      Margin="10,0"
+                      AutomationProperties.Name="均衡器预设"
+                      DisplayMemberPath="Name"
+                      ItemsSource="{Binding EqualizerPresets}"
+                      SelectedItem="{Binding SelectedEqualizerPreset, Mode=TwoWay}" />
+            <Button Grid.Column="2"
+                    MinWidth="0"
+                    Height="28"
+                    Padding="9,0"
+                    AutomationProperties.Name="恢复原声"
+                    Command="{Binding ResetEqualizerCommand}"
+                    Content="重置" />
+        </Grid>
+
+        <Border Margin="0,8,0,0"
+                Padding="7,6"
+                Background="#0F151D"
+                BorderBrush="{StaticResource StrokeBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                IsEnabled="{Binding IsEqualizerEnabled}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="16" />
+                    <RowDefinition Height="98" />
+                    <RowDefinition Height="16" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" HorizontalAlignment="Center" FontFamily="Consolas" FontSize="9" Text="{Binding Eq20Db, StringFormat={}{0:+0;-0;0}}" />
+                <TextBlock Grid.Column="1" HorizontalAlignment="Center" FontFamily="Consolas" FontSize="9" Text="{Binding Eq60Db, StringFormat={}{0:+0;-0;0}}" />
+                <TextBlock Grid.Column="2" HorizontalAlignment="Center" FontFamily="Consolas" FontSize="9" Text="{Binding Eq100Db, StringFormat={}{0:+0;-0;0}}" />
+                <TextBlock Grid.Column="3" HorizontalAlignment="Center" FontFamily="Consolas" FontSize="9" Text="{Binding Eq250Db, StringFormat={}{0:+0;-0;0}}" />
+                <TextBlock Grid.Column="4" HorizontalAlignment="Center" FontFamily="Consolas" FontSize="9" Text="{Binding Eq500Db, StringFormat={}{0:+0;-0;0}}" />
+                <TextBlock Grid.Column="5" HorizontalAlignment="Center" FontFamily="Consolas" FontSize="9" Text="{Binding Eq1KDb, StringFormat={}{0:+0;-0;0}}" />
+                <TextBlock Grid.Column="6" HorizontalAlignment="Center" FontFamily="Consolas" FontSize="9" Text="{Binding Eq2KDb, StringFormat={}{0:+0;-0;0}}" />
+                <TextBlock Grid.Column="7" HorizontalAlignment="Center" FontFamily="Consolas" FontSize="9" Text="{Binding Eq4KDb, StringFormat={}{0:+0;-0;0}}" />
+                <TextBlock Grid.Column="8" HorizontalAlignment="Center" FontFamily="Consolas" FontSize="9" Text="{Binding Eq8KDb, StringFormat={}{0:+0;-0;0}}" />
+                <TextBlock Grid.Column="9" HorizontalAlignment="Center" FontFamily="Consolas" FontSize="9" Text="{Binding Eq20KDb, StringFormat={}{0:+0;-0;0}}" />
+
+                <Slider Grid.Row="1" Grid.Column="0" Height="94" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq20Db, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Slider Grid.Row="1" Grid.Column="1" Height="94" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq60Db, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Slider Grid.Row="1" Grid.Column="2" Height="94" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq100Db, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Slider Grid.Row="1" Grid.Column="3" Height="94" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq250Db, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Slider Grid.Row="1" Grid.Column="4" Height="94" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq500Db, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Slider Grid.Row="1" Grid.Column="5" Height="94" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq1KDb, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Slider Grid.Row="1" Grid.Column="6" Height="94" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq2KDb, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Slider Grid.Row="1" Grid.Column="7" Height="94" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq4KDb, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Slider Grid.Row="1" Grid.Column="8" Height="94" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq8KDb, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <Slider Grid.Row="1" Grid.Column="9" Height="94" Orientation="Vertical" Minimum="-20" Maximum="20" Value="{Binding Eq20KDb, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" HorizontalAlignment="Center" FontSize="8" Text="20" />
+                <TextBlock Grid.Row="2" Grid.Column="1" HorizontalAlignment="Center" FontSize="8" Text="60" />
+                <TextBlock Grid.Row="2" Grid.Column="2" HorizontalAlignment="Center" FontSize="8" Text="100" />
+                <TextBlock Grid.Row="2" Grid.Column="3" HorizontalAlignment="Center" FontSize="8" Text="250" />
+                <TextBlock Grid.Row="2" Grid.Column="4" HorizontalAlignment="Center" FontSize="8" Text="500" />
+                <TextBlock Grid.Row="2" Grid.Column="5" HorizontalAlignment="Center" FontSize="8" Text="1K" />
+                <TextBlock Grid.Row="2" Grid.Column="6" HorizontalAlignment="Center" FontSize="8" Text="2K" />
+                <TextBlock Grid.Row="2" Grid.Column="7" HorizontalAlignment="Center" FontSize="8" Text="4K" />
+                <TextBlock Grid.Row="2" Grid.Column="8" HorizontalAlignment="Center" FontSize="8" Text="8K" />
+                <TextBlock Grid.Row="2" Grid.Column="9" HorizontalAlignment="Center" FontSize="8" Text="20K" />
+            </Grid>
+        </Border>
+    </StackPanel>
+</UserControl>

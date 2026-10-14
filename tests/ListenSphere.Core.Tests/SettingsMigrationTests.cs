@@ -13,12 +13,14 @@ public sealed class SettingsMigrationTests
     [InlineData(13)]
     [InlineData(14)]
     [InlineData(15)]
+    [InlineData(16)]
+    [InlineData(17)]
     public void Pipeline_UpgradesAndIsIdempotent(int version)
     {
         var pipeline = new SettingsMigrationPipeline();
         var original = new ListenSphereSettings { Version = version, MasterVolume = 0.37f };
         var migrated = pipeline.Migrate(original);
-        Assert.Equal(15, migrated.Version);
+        Assert.Equal(17, migrated.Version);
         Assert.Equal(version, original.Version);
         Assert.Equal(0.37f, migrated.MasterVolume);
         Assert.Same(migrated, pipeline.Migrate(migrated));
@@ -35,17 +37,25 @@ public sealed class SettingsMigrationTests
                 Version = step.SourceVersion,
                 MicrophoneOutputEnabled = true,
                 LocalSourceVolume = 0.26f,
+                LocalSourceEqualizerEnabled = false,
+                LocalSourceEqualizerPreset = "低音增强",
+                LocalSourceEqualizerGains = [5, 4, 3, 2, 0, -1, -1, 0, 1, 1],
+                LocalSourceEqualizerStrength = 0.65f,
                 ComputerMicrophoneDeviceId = "mic"
             };
             var result = step.Migrate(original);
             Assert.Equal(step.SourceVersion + 1, step.TargetVersion);
             Assert.Equal(step.TargetVersion, result.Version);
             Assert.Equal(0.26f, result.LocalSourceVolume);
+            Assert.False(result.LocalSourceEqualizerEnabled);
+            Assert.Equal("低音增强", result.LocalSourceEqualizerPreset);
+            Assert.Equal([5, 4, 3, 2, 0, -1, -1, 0, 1, 1], result.LocalSourceEqualizerGains);
+            Assert.Equal(0.65f, result.LocalSourceEqualizerStrength);
             Assert.True(result.MicrophoneOutputEnabled);
             Assert.Equal("mic", result.ComputerMicrophoneDeviceId);
             Assert.Throws<ArgumentException>(() => step.Migrate(result));
         }
-        Assert.Equal([10, 11, 12, 13, 14], pipeline.Steps.Select(s => s.SourceVersion));
+        Assert.Equal([10, 11, 12, 13, 14, 15, 16], pipeline.Steps.Select(s => s.SourceVersion));
     }
 
     [Fact]
@@ -77,7 +87,7 @@ public sealed class SettingsMigrationTests
     [InlineData(7)]
     [InlineData(8)]
     [InlineData(9)]
-    [InlineData(16)]
+    [InlineData(18)]
     [InlineData(999)]
     public async Task UnsupportedFiles_AreNeverRenamedOrOverwritten(int version)
     {
@@ -117,13 +127,13 @@ public sealed class SettingsMigrationTests
         await File.WriteAllTextAsync(fixture.Path, json, TestContext.Current.CancellationToken);
         var store = new JsonSettingsStore(fixture.Path);
         var result = await store.LoadAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(15, result.Version);
+        Assert.Equal(17, result.Version);
         Assert.Equal(1, result.MasterVolume);
         Assert.Equal(0, result.LocalSourceVolume);
         Assert.Empty(result.Scenes);
         Assert.Equal(json, await File.ReadAllTextAsync(fixture.Path, TestContext.Current.CancellationToken));
         await store.SaveAsync(result, TestContext.Current.CancellationToken);
-        Assert.Equal(15, (await store.LoadAsync(TestContext.Current.CancellationToken)).Version);
+        Assert.Equal(17, (await store.LoadAsync(TestContext.Current.CancellationToken)).Version);
         Assert.Single(Directory.GetFiles(fixture.Directory));
     }
 
@@ -155,14 +165,14 @@ public sealed class SettingsMigrationTests
         Assert.NotNull(store.LastRecoveryPath);
         Assert.Equal("{broken", await File.ReadAllTextAsync(store.LastRecoveryPath, TestContext.Current.CancellationToken));
         await store.SaveAsync(result, TestContext.Current.CancellationToken);
-        Assert.Equal(15, (await store.LoadAsync(TestContext.Current.CancellationToken)).Version);
+        Assert.Equal(17, (await store.LoadAsync(TestContext.Current.CancellationToken)).Version);
     }
 
     [Fact]
     public async Task FutureSchemaWithChangedFieldTypes_IsPreserved()
     {
         using var fixture = new TempSettings();
-        string json = """{"Version":16,"masterVolume":{"newFormat":true},"scenes":"new-schema"}""";
+        string json = """{"Version":18,"masterVolume":{"newFormat":true},"scenes":"new-schema"}""";
         await File.WriteAllTextAsync(fixture.Path, json, TestContext.Current.CancellationToken);
         var store = new JsonSettingsStore(fixture.Path);
         await store.LoadAsync(TestContext.Current.CancellationToken);

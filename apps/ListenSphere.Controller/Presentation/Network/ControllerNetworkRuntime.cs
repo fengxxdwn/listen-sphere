@@ -107,6 +107,9 @@ public sealed class ControllerNetworkRuntime :
             captureSourceFactory,
             processCaptureSourceFactory,
             LocalSoundChannelId);
+        LocalSourceEqualizer = new LocalSourceEqualizerViewModel(
+            (_, gains) => localAudioRoutingCoordinator.SetLocalSourceEqualizer(false, gains),
+            () => AudioSettingsChanged?.Invoke(this, EventArgs.Empty));
         microphoneHubCoordinator = new MicrophoneHubCoordinator(
             audioDeviceManager,
             recordingCaptureSourceFactory,
@@ -173,6 +176,7 @@ public sealed class ControllerNetworkRuntime :
     public ObservableCollection<GroupBusItemViewModel> ActiveGroupBuses { get; } = [];
     public ObservableCollection<RoutingRuleItemViewModel> RoutingRules { get; } = [];
     public ObservableCollection<AdditionalOutputDeviceItemViewModel> AdditionalOutputs { get; } = [];
+    public LocalSourceEqualizerViewModel LocalSourceEqualizer { get; }
     public AsyncRelayCommand GenerateCodeCommand { get; }
     public AsyncRelayCommand RefreshOutputsCommand { get; }
     public AsyncRelayCommand SelectWirelessCommand { get; }
@@ -670,6 +674,10 @@ public sealed class ControllerNetworkRuntime :
         bool microphoneMonitoringEnabled = false,
         float localSourceVolume = 1f,
         bool localSourceMuted = false,
+        bool localSourceEqualizerEnabled = true,
+        string? localSourceEqualizerPreset = "原声",
+        IReadOnlyList<float>? localSourceEqualizerGains = null,
+        float localSourceEqualizerStrength = 1f,
         string? preferredMicrophoneMonitoringDeviceId = null,
         bool microphoneOutputEnabled = false,
         string? preferredComputerMicrophoneDeviceId = null)
@@ -683,6 +691,11 @@ public sealed class ControllerNetworkRuntime :
         applyingSettings = true;
         LocalSourceVolumePercent = Math.Clamp(localSourceVolume, 0f, 1f) * 100;
         IsLocalSourceMuted = localSourceMuted;
+        LocalSourceEqualizer.ApplySettings(
+            localSourceEqualizerEnabled,
+            localSourceEqualizerPreset,
+            localSourceEqualizerGains,
+            localSourceEqualizerStrength);
         automaticRoutingEnabled = enableAutomaticRouting;
         RoutingRules.Clear();
         foreach (ListenSphere.Configuration.AudioRoutingRuleSettings rule in savedRoutingRules ?? [])
@@ -2289,6 +2302,7 @@ public sealed class ControllerNetworkRuntime :
         remoteAudioCoordinator.SnapshotChanged -= OnRemoteAudioSnapshotChanged;
         remoteAudioCoordinator.MeterChanged -= OnRemoteAudioMeterChanged;
         groupMixerCoordinator.SnapshotChanged -= OnGroupMixerSnapshotChanged;
+        LocalSourceEqualizer.Dispose();
         await remoteAudioCoordinator.DisposeAsync();
         await groupMixerCoordinator.DisposeAsync();
         await audioOutputCoordinator.DisposeAsync();

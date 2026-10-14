@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Text;
 using System.Threading.Channels;
 using ListenSphere.Device;
 using MeaMod.DNS.Model;
@@ -166,7 +167,7 @@ public sealed class MdnsControllerPublisher : IDisposable
         disposed = true;
     }
 
-    private static ServiceProfile CreateProfile(
+    internal static ServiceProfile CreateProfile(
         LocalDeviceIdentity identity,
         int controlPort,
         IPAddress[] addresses)
@@ -180,7 +181,10 @@ public sealed class MdnsControllerPublisher : IDisposable
             "pv",
             $"{identity.Device.ProtocolMajor}.{identity.Device.ProtocolMinor}");
         profile.AddProperty("id", identity.Device.DeviceId.ToString("D"));
-        profile.AddProperty("name", identity.Device.DisplayName);
+        // MeaMod.DNS serializes TXT strings as ASCII. Encode Unicode names for
+        // discovery while keeping the original display name in the authenticated
+        // control identity used by the application UI.
+        profile.AddProperty("name", ToAsciiTxtName(identity.Device.DisplayName));
         profile.AddProperty(
             "platform",
             identity.Device.Platform.ToString().ToLowerInvariant());
@@ -188,6 +192,18 @@ public sealed class MdnsControllerPublisher : IDisposable
             "caps",
             ((ulong)identity.Device.Capabilities).ToString("x16", CultureInfo.InvariantCulture));
         return profile;
+    }
+
+    internal static string ToAsciiTxtName(string displayName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
+        if (displayName.All(char.IsAscii))
+        {
+            return displayName;
+        }
+
+        string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(displayName));
+        return $"utf8-{base64.TrimEnd('=').Replace('+', '-').Replace('/', '_')}";
     }
 
     private sealed record InterfaceAdvertisement(

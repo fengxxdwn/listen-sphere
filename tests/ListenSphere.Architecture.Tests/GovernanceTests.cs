@@ -234,6 +234,35 @@ public sealed class GovernanceTests
         Assert.DoesNotContain("0.6.0-beta.1", validator, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ReleaseCandidateValidation_OnlyInspectsCentralVersionedArtifacts()
+    {
+        string root = FindRepository();
+        string scriptPath = Path.Combine(root, "scripts", "Test-ListenSphereReleaseCandidate.ps1");
+        Assert.True(File.Exists(scriptPath), $"RC validator is missing: {scriptPath}");
+
+        string script = File.ReadAllText(scriptPath);
+        Assert.Contains("eng/ListenSphere.Version.props", script, StringComparison.Ordinal);
+        Assert.Contains("ExpectedCommit", script, StringComparison.Ordinal);
+        Assert.Contains("ExpectedPackagingRun", script, StringComparison.Ordinal);
+        Assert.Contains("Get-FileHash", script, StringComparison.Ordinal);
+        Assert.Contains("docs/release/p11-f-rc-manifest.md", script, StringComparison.Ordinal);
+        Assert.Contains("git -C $RepositoryRoot show", script, StringComparison.Ordinal);
+        Assert.Contains("does not match committed RC manifest Source commit", script, StringComparison.Ordinal);
+        Assert.Contains("does not match committed RC manifest Packaging run", script, StringComparison.Ordinal);
+        Assert.Contains("SHA256 trust-chain mismatch", script, StringComparison.Ordinal);
+        Assert.Contains("AUTOMATED RESULT: PASS", script, StringComparison.Ordinal);
+        Assert.Contains("MANUAL RESULT: NOT TESTED BY THIS SCRIPT", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("0.6.0-beta.1", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("dotnet build", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("dotnet publish", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("gradlew", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("assembleDebug", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("assembleRelease", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("gh release", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("git tag", script, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string[] GetProjectReferences(string project)
     {
         XDocument document = XDocument.Load(project);
