@@ -24,11 +24,14 @@ public partial class App : Application
     private LocalDeviceIdentity? localIdentity;
     private SingleInstanceGuard? singleInstance;
     private TrayIconService? trayIcon;
+    private int activationPending;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        singleInstance = SingleInstanceGuard.TryAcquire(SingleInstanceName);
+        singleInstance = SingleInstanceGuard.TryAcquire(
+            SingleInstanceName,
+            OnActivationRequested);
         if (singleInstance is null)
         {
             Shutdown();
@@ -100,6 +103,10 @@ public partial class App : Application
             mainWindow.RequestExit);
         mainWindow.MinimizedToTray += OnMainWindowMinimizedToTray;
         mainWindow.Show();
+        if (Interlocked.Exchange(ref activationPending, 0) != 0)
+        {
+            mainWindow.ShowAndActivate();
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -123,6 +130,21 @@ public partial class App : Application
 
     private void OnMainWindowMinimizedToTray(object? sender, EventArgs args) =>
         trayIcon?.ShowBackgroundNotification();
+
+    private void OnActivationRequested()
+    {
+        Interlocked.Exchange(ref activationPending, 1);
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            if (MainWindow is not MainWindow mainWindow)
+            {
+                return;
+            }
+
+            Interlocked.Exchange(ref activationPending, 0);
+            mainWindow.ShowAndActivate();
+        });
+    }
 
     private static void OnDispatcherUnhandledException(
         object sender,

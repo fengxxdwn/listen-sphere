@@ -453,7 +453,10 @@
                                                 FontSize="9" Text="{Binding VolumePercent, StringFormat={}{0:F0}%}" />
                                      <ToggleButton Grid.Column="2" Width="28" Height="26" HorizontalAlignment="Right"
                                                    Style="{StaticResource MuteToggleButton}"
-                                                   IsChecked="{Binding IsMuted, Mode=TwoWay}"
+                                                   AutomationProperties.Name="{Binding MuteButtonText}"
+                                                   ClickMode="Press"
+                                                   Command="{Binding ToggleMuteCommand}"
+                                                   IsChecked="{Binding IsMuted, Mode=OneWay}"
                                                    ToolTip="{Binding MuteButtonText}">
                                          <TextBlock HorizontalAlignment="Center" FontSize="11" Style="{StaticResource IconText}" Text="&#xE74F;" />
                                      </ToggleButton>

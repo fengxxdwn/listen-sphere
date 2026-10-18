@@ -77,6 +77,29 @@ public sealed class WindowsAdapterSmokeTests
     }
 
     [Fact]
+    public async Task DeviceManager_ConfirmsCurrentDefaultPlaybackEndpoint()
+    {
+        using var enumerator = new MMDeviceEnumerator();
+        if (!enumerator.HasDefaultAudioEndpoint(DataFlow.Render, Role.Console))
+        {
+            return;
+        }
+        using MMDevice current =
+            enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
+        var manager = new WasapiAudioDeviceManager();
+
+        await manager.SetDefaultPlaybackDeviceAsync(
+            current.ID,
+            TestContext.Current.CancellationToken);
+
+        using var verificationEnumerator = new MMDeviceEnumerator();
+        using MMDevice verified = verificationEnumerator.GetDefaultAudioEndpoint(
+            DataFlow.Render,
+            Role.Console);
+        Assert.Equal(current.ID, verified.ID);
+    }
+
+    [Fact]
     public void WindowsAudioDevice_LabelsTheDefaultEndpoint()
     {
         var device = new WindowsAudioDevice("id", "Headphones", true);

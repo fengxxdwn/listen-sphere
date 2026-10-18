@@ -34,7 +34,7 @@ public sealed class AudioOutputCoordinatorTests
     }
 
     [Fact]
-    public async Task SelectDeviceAsync_DisablesDefaultFollowingAndReplacesPlaybackOwner()
+    public async Task SelectDeviceAsync_ChangesWindowsDefaultAndReplacesPlaybackOwner()
     {
         var primary = new TestAudioDevice("primary", "Primary", true);
         var secondary = new TestAudioDevice("secondary", "Secondary", false);
@@ -46,16 +46,99 @@ public sealed class AudioOutputCoordinatorTests
             true,
             TestContext.Current.CancellationToken);
         FakePlaybackSink first = runtime.CreatedSinks[0];
+        long previousRevision = coordinator.Snapshot.DeviceRevision;
 
         await coordinator.SelectDeviceAsync(
             secondary,
             TestContext.Current.CancellationToken);
 
-        Assert.False(coordinator.Snapshot.FollowSystemDefault);
+        Assert.True(coordinator.Snapshot.FollowSystemDefault);
         Assert.Equal(secondary.Id, coordinator.Snapshot.SelectedDevice?.Id);
+        Assert.True(coordinator.Snapshot.SelectedDevice?.IsDefault);
+        Assert.Equal(previousRevision + 1, coordinator.Snapshot.DeviceRevision);
+        Assert.Equal([secondary.Id], runtime.DefaultPlaybackWrites);
         Assert.Equal(1, first.StopCount);
         Assert.Equal(1, first.DisposeCount);
         Assert.Equal(2, runtime.CreatedSinks.Count);
+    }
+
+    [Fact]
+    public async Task EndpointMute_RetriesUntilWindowsConfirmsTheRequestedState()
+    {
+        var primary = new TestAudioDevice("primary", "Primary", true);
+        var runtime = new FakeAudioOutputRuntime(primary)
+        {
+            IgnoredMuteWritesRemaining = 2
+        };
+        await using var coordinator = new AudioOutputCoordinator(runtime);
+        await coordinator.InitializeAsync(
+            primary.Id,
+            100,
+            true,
+            TestContext.Current.CancellationToken);
+
+        await coordinator.SetEndpointMuteAsync(
+            primary.Id,
+            true,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(runtime.Mutes[primary.Id]);
+        Assert.True(Assert.Single(coordinator.Snapshot.Endpoints).IsMuted);
+        Assert.Equal(3, runtime.MuteWriteCount);
+    }
+
+    [Fact]
+    public async Task EndpointMute_DifferentDevicesAreAppliedWithoutCrossDeviceDelay()
+    {
+        var primary = new TestAudioDevice("primary", "Primary", true);
+        var secondary = new TestAudioDevice("secondary", "Secondary", false);
+        var runtime = new FakeAudioOutputRuntime(primary, secondary)
+        {
+            MuteWriteDelayMilliseconds = 150
+        };
+        await using var coordinator = new AudioOutputCoordinator(runtime);
+        await coordinator.InitializeAsync(
+            primary.Id,
+            100,
+            true,
+            TestContext.Current.CancellationToken);
+
+        await Task.WhenAll(
+            coordinator.SetEndpointMuteAsync(
+                primary.Id,
+                true,
+                TestContext.Current.CancellationToken),
+            coordinator.SetEndpointMuteAsync(
+                secondary.Id,
+                true,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, runtime.MaximumConcurrentMuteWrites);
+        Assert.True(runtime.Mutes[primary.Id]);
+        Assert.True(runtime.Mutes[secondary.Id]);
+    }
+
+    [Fact]
+    public async Task SelectDeviceAsync_KeepsCurrentRouteWhenWindowsRejectsDefaultChange()
+    {
+        var primary = new TestAudioDevice("primary", "Primary", true);
+        var secondary = new TestAudioDevice("secondary", "Secondary", false);
+        var runtime = new FakeAudioOutputRuntime(primary, secondary);
+        await using var coordinator = new AudioOutputCoordinator(runtime);
+        await coordinator.InitializeAsync(
+            primary.Id,
+            100,
+            true,
+            TestContext.Current.CancellationToken);
+        runtime.FailDefaultPlaybackWrite = true;
+
+        await coordinator.SelectDeviceAsync(
+            secondary,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(primary.Id, coordinator.Snapshot.SelectedDevice?.Id);
+        Assert.Contains("切换 Windows 输出设备失败", coordinator.Snapshot.ErrorText);
+        Assert.Single(runtime.CreatedSinks);
     }
 
     [Fact]
@@ -195,12 +278,39 @@ public sealed class AudioOutputCoordinatorTests
             _ => false,
             StringComparer.Ordinal);
         public List<(string DeviceId, float Volume)> VolumeWrites { get; } = [];
+        public List<string> DefaultPlaybackWrites { get; } = [];
         public List<FakePlaybackSink> CreatedSinks { get; } = [];
         public bool FailWrites { get; set; }
+        public bool FailDefaultPlaybackWrite { get; set; }
         public bool CloneDevicesOnRead { get; set; }
         public int PlaybackDeviceReadDelayMilliseconds { get; set; }
         public int MaximumConcurrentPlaybackDeviceReads { get; private set; }
+        public int IgnoredMuteWritesRemaining { get; set; }
+        public int MuteWriteCount { get; private set; }
+        public int MuteWriteDelayMilliseconds { get; set; }
+        public int MaximumConcurrentMuteWrites => Volatile.Read(ref maximumConcurrentMuteWrites);
         private int activePlaybackDeviceReads;
+        private int activeMuteWrites;
+        private int maximumConcurrentMuteWrites;
+
+        public ValueTask SetDefaultPlaybackDeviceAsync(
+            string deviceId,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (FailDefaultPlaybackWrite)
+            {
+                throw new InvalidOperationException("default change failed");
+            }
+            DefaultPlaybackWrites.Add(deviceId);
+            Devices = Devices.Select(device =>
+                (IAudioDevice)new TestAudioDevice(
+                    device.Id,
+                    device.DisplayName,
+                    string.Equals(device.Id, deviceId, StringComparison.Ordinal)))
+                .ToArray();
+            return ValueTask.CompletedTask;
+        }
 
         public async ValueTask<IReadOnlyList<IAudioDevice>> GetPlaybackDevicesAsync(
             CancellationToken cancellationToken)
@@ -253,14 +363,40 @@ public sealed class AudioOutputCoordinatorTests
             CancellationToken cancellationToken) =>
             ValueTask.FromResult(Mutes.GetValueOrDefault(deviceId));
 
-        public ValueTask SetMuteAsync(
+        public async ValueTask SetMuteAsync(
             string deviceId,
             bool isMuted,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Mutes[deviceId] = isMuted;
-            return ValueTask.CompletedTask;
+            MuteWriteCount++;
+            int active = Interlocked.Increment(ref activeMuteWrites);
+            int observed;
+            do
+            {
+                observed = Volatile.Read(ref maximumConcurrentMuteWrites);
+            }
+            while (active > observed && Interlocked.CompareExchange(
+                ref maximumConcurrentMuteWrites,
+                active,
+                observed) != observed);
+            try
+            {
+                if (MuteWriteDelayMilliseconds > 0)
+                {
+                    await Task.Delay(MuteWriteDelayMilliseconds, cancellationToken);
+                }
+                if (IgnoredMuteWritesRemaining > 0)
+                {
+                    IgnoredMuteWritesRemaining--;
+                    return;
+                }
+                Mutes[deviceId] = isMuted;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref activeMuteWrites);
+            }
         }
 
         public IAudioPlaybackSink CreatePlaybackSink(IAudioDevice device)

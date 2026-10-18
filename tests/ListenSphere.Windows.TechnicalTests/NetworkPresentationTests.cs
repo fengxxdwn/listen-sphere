@@ -50,7 +50,7 @@ public sealed class NetworkPresentationTests
             50,
             false,
             (_, _) => { },
-            (_, _) => { });
+            (_, muted) => Task.FromResult(muted));
         device.Routes.Add(CreateRoute(firstChannelId));
         device.Routes.Add(CreateRoute(secondChannelId));
         device.RefreshSummary();
@@ -61,6 +61,63 @@ public sealed class NetworkPresentationTests
         Assert.Single(device.Routes);
         Assert.Equal(secondChannelId, device.Routes[0].ChannelId);
         Assert.Equal("已接收 1 个音源", device.Summary);
+    }
+
+    [Fact]
+    public async Task AdditionalOutputMuteCommand_ForwardsRequestAndUsesConfirmedState()
+    {
+        string? capturedDeviceId = null;
+        bool? capturedMute = null;
+        var invoked = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var device = new AdditionalOutputDeviceItemViewModel(
+            "secondary-device",
+            "Secondary Device",
+            50,
+            false,
+            (_, _) => { },
+            (deviceId, muted) =>
+            {
+                capturedDeviceId = deviceId;
+                capturedMute = muted;
+                invoked.SetResult();
+                return Task.FromResult(muted);
+            });
+
+        device.ToggleMuteCommand.Execute(null);
+        await invoked.Task.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("secondary-device", capturedDeviceId);
+        Assert.True(capturedMute);
+        Assert.True(device.IsMuted);
+    }
+
+    [Fact]
+    public void AdditionalOutputRefreshEndpointState_DoesNotWriteBackToWindows()
+    {
+        int volumeWrites = 0;
+        int muteWrites = 0;
+        var device = new AdditionalOutputDeviceItemViewModel(
+            "secondary-device",
+            "Secondary Device",
+            50,
+            false,
+            (_, _) => volumeWrites++,
+            (_, muted) =>
+            {
+                muteWrites++;
+                return Task.FromResult(muted);
+            });
+
+        device.RefreshEndpointState(75, true);
+
+        Assert.Equal(75, device.VolumePercent);
+        Assert.True(device.IsMuted);
+        Assert.Equal("取消此输出设备静音", device.MuteButtonText);
+        Assert.Equal(0, volumeWrites);
+        Assert.Equal(0, muteWrites);
     }
 
     [Fact]

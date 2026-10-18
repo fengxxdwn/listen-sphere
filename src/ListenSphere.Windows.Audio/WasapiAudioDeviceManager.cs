@@ -15,14 +15,28 @@ public sealed class WasapiAudioDeviceManager : IAudioDeviceManager
         CancellationToken cancellationToken) =>
         GetDevicesAsync(DataFlow.Capture, cancellationToken);
 
-    public ValueTask SetDefaultRecordingDeviceAsync(
+    public async ValueTask SetDefaultPlaybackDeviceAsync(
         string deviceId,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
         cancellationToken.ThrowIfCancellationRequested();
-        WindowsDefaultAudioEndpoint.SetDefault(deviceId);
-        return ValueTask.CompletedTask;
+        await WindowsDefaultAudioEndpoint.SetDefaultAndVerifyAsync(
+            deviceId,
+            DataFlow.Render,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask SetDefaultRecordingDeviceAsync(
+        string deviceId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
+        cancellationToken.ThrowIfCancellationRequested();
+        await WindowsDefaultAudioEndpoint.SetDefaultAndVerifyAsync(
+            deviceId,
+            DataFlow.Capture,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static ValueTask<IReadOnlyList<IAudioDevice>> GetDevicesAsync(
@@ -62,7 +76,57 @@ public sealed class WasapiAudioDeviceManager : IAudioDeviceManager
 
 internal static class WindowsDefaultAudioEndpoint
 {
-    public static void SetDefault(string deviceId)
+    private static readonly PolicyRole[] Roles =
+    [
+        PolicyRole.Console,
+        PolicyRole.Multimedia,
+        PolicyRole.Communications
+    ];
+
+    public static async Task SetDefaultAndVerifyAsync(
+        string deviceId,
+        DataFlow dataFlow,
+        CancellationToken cancellationToken)
+    {
+        Exception? primaryFailure = null;
+        try
+        {
+            SetDefaultWithCurrentPolicy(deviceId);
+            if (await WaitForDefaultAsync(deviceId, dataFlow, cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return;
+            }
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            primaryFailure = exception;
+        }
+
+        try
+        {
+            SetDefaultWithVistaPolicy(deviceId);
+            if (await WaitForDefaultAsync(deviceId, dataFlow, cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return;
+            }
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidOperationException(
+                "Windows 拒绝了默认音频设备切换。",
+                primaryFailure is null
+                    ? exception
+                    : new AggregateException(primaryFailure, exception));
+        }
+
+        throw new InvalidOperationException(
+            $"Windows 未将请求的设备设为默认设备：{deviceId}",
+            primaryFailure);
+    }
+
+    private static void SetDefaultWithCurrentPolicy(string deviceId)
     {
         Type policyConfigType = Type.GetTypeFromCLSID(
             new Guid("870AF99C-171D-4F9E-AF0D-E63DF40C2BC9"),
@@ -70,9 +134,11 @@ internal static class WindowsDefaultAudioEndpoint
         var policyConfig = (IPolicyConfig)Activator.CreateInstance(policyConfigType)!;
         try
         {
-            SetDefaultForRole(policyConfig, deviceId, PolicyRole.Console);
-            SetDefaultForRole(policyConfig, deviceId, PolicyRole.Multimedia);
-            SetDefaultForRole(policyConfig, deviceId, PolicyRole.Communications);
+            foreach (PolicyRole role in Roles)
+            {
+                Marshal.ThrowExceptionForHR(
+                    policyConfig.SetDefaultEndpoint(deviceId, role));
+            }
         }
         finally
         {
@@ -80,13 +146,60 @@ internal static class WindowsDefaultAudioEndpoint
         }
     }
 
-    private static void SetDefaultForRole(
-        IPolicyConfig policyConfig,
-        string deviceId,
-        PolicyRole role)
+    private static void SetDefaultWithVistaPolicy(string deviceId)
     {
-        int result = policyConfig.SetDefaultEndpoint(deviceId, role);
-        Marshal.ThrowExceptionForHR(result);
+        Type policyConfigType = Type.GetTypeFromCLSID(
+            new Guid("294935CE-F637-4E7C-A41B-AB255460B862"),
+            throwOnError: true)!;
+        var policyConfig = (IPolicyConfigVista)Activator.CreateInstance(policyConfigType)!;
+        try
+        {
+            foreach (PolicyRole role in Roles)
+            {
+                Marshal.ThrowExceptionForHR(
+                    policyConfig.SetDefaultEndpoint(deviceId, role));
+            }
+        }
+        finally
+        {
+            _ = Marshal.FinalReleaseComObject(policyConfig);
+        }
+    }
+
+    private static async Task<bool> WaitForDefaultAsync(
+        string deviceId,
+        DataFlow dataFlow,
+        CancellationToken cancellationToken)
+    {
+        for (int attempt = 0; attempt < 6; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (IsDefaultForAllRoles(deviceId, dataFlow))
+            {
+                return true;
+            }
+            await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+        }
+        return false;
+    }
+
+    private static bool IsDefaultForAllRoles(string deviceId, DataFlow dataFlow)
+    {
+        using var enumerator = new MMDeviceEnumerator();
+        foreach (PolicyRole role in Roles)
+        {
+            var naudioRole = (Role)(int)role;
+            if (!enumerator.HasDefaultAudioEndpoint(dataFlow, naudioRole))
+            {
+                return false;
+            }
+            using MMDevice endpoint = enumerator.GetDefaultAudioEndpoint(dataFlow, naudioRole);
+            if (!string.Equals(endpoint.ID, deviceId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private enum PolicyRole
@@ -100,6 +213,30 @@ internal static class WindowsDefaultAudioEndpoint
     [Guid("F8679F50-850A-41CF-9C72-430F290290C8")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IPolicyConfig
+    {
+        void GetMixFormat();
+        void GetDeviceFormat();
+        void ResetDeviceFormat();
+        void SetDeviceFormat();
+        void GetProcessingPeriod();
+        void SetProcessingPeriod();
+        void GetShareMode();
+        void SetShareMode();
+        void GetPropertyValue();
+        void SetPropertyValue();
+
+        [PreserveSig]
+        int SetDefaultEndpoint(
+            [MarshalAs(UnmanagedType.LPWStr)] string deviceId,
+            PolicyRole role);
+
+        void SetEndpointVisibility();
+    }
+
+    [ComImport]
+    [Guid("568B9108-44BF-40B4-9006-86AFE5B5A620")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IPolicyConfigVista
     {
         void GetMixFormat();
         void GetDeviceFormat();
