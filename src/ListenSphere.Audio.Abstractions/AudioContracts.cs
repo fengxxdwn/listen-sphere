@@ -85,6 +85,9 @@ public interface IAudioDeviceManager
         CancellationToken cancellationToken);
     ValueTask<IReadOnlyList<IAudioDevice>> GetRecordingDevicesAsync(
         CancellationToken cancellationToken);
+    ValueTask SetDefaultPlaybackDeviceAsync(
+        string deviceId,
+        CancellationToken cancellationToken);
     ValueTask SetDefaultRecordingDeviceAsync(
         string deviceId,
         CancellationToken cancellationToken);

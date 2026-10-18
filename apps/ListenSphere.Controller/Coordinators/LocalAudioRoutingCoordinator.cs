@@ -205,6 +205,10 @@ internal sealed class LocalAudioRoutingCoordinator : IAsyncDisposable
         await ReconcileAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public void UpdateEndpointStates(
+        IReadOnlyList<AudioOutputEndpointSnapshot> nextEndpoints) =>
+        endpoints = nextEndpoints.ToArray();
+
     public Task<bool> AddRouteAsync(
         Guid channelId,
         string deviceId,

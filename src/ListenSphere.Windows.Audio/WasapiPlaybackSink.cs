@@ -21,6 +21,11 @@ public sealed class WasapiPlaybackSink :
     IAudioPlaybackSink,
     IAudioPlaybackDiagnostics
 {
+    private const int StandardStartupBufferMilliseconds = 60;
+    // Bluetooth render endpoints commonly submit audio to the radio in large bursts.
+    // Keep enough PCM queued to absorb those bursts even when network delivery itself
+    // is complete and in order.
+    private const int BluetoothStartupBufferMilliseconds = 220;
     private readonly string deviceId;
     private readonly WasapiPlaybackProfile profile;
     private readonly object gate = new();
@@ -47,7 +52,9 @@ public sealed class WasapiPlaybackSink :
         this.deviceId = deviceId;
         this.profile = profile;
         adaptiveBuffer = profile == WasapiPlaybackProfile.BluetoothResilient
-            ? new AdaptivePlaybackController(targetMilliseconds: 100, toleranceMilliseconds: 80)
+            ? new AdaptivePlaybackController(
+                targetMilliseconds: BluetoothStartupBufferMilliseconds,
+                toleranceMilliseconds: 100)
             : new AdaptivePlaybackController();
     }
 
@@ -89,12 +96,12 @@ public sealed class WasapiPlaybackSink :
             buffer = new BufferedWaveProvider(WaveFormat.CreateIeeeFloatWaveFormat(48_000, 2))
             {
                 BufferDuration = profile == WasapiPlaybackProfile.BluetoothResilient
-                    ? TimeSpan.FromMilliseconds(500)
+                    ? TimeSpan.FromMilliseconds(800)
                     : TimeSpan.FromMilliseconds(250),
                 DiscardOnBufferOverflow = true,
                 ReadFully = true
             };
-            int deviceLatency = profile == WasapiPlaybackProfile.BluetoothResilient ? 100 : 40;
+            int deviceLatency = profile == WasapiPlaybackProfile.BluetoothResilient ? 120 : 40;
             output = new WasapiOut(device, AudioClientShareMode.Shared, true, deviceLatency);
             output.PlaybackStopped += OnPlaybackStopped;
             output.Init(buffer);
@@ -172,7 +179,10 @@ public sealed class WasapiPlaybackSink :
             buffer.AddSamples(resampled, 0, written);
             framesWritten++;
             if (!outputStarted &&
-                buffer.BufferedDuration >= TimeSpan.FromMilliseconds(profile == WasapiPlaybackProfile.BluetoothResilient ? 100 : 60))
+                buffer.BufferedDuration >= TimeSpan.FromMilliseconds(
+                    profile == WasapiPlaybackProfile.BluetoothResilient
+                        ? BluetoothStartupBufferMilliseconds
+                        : StandardStartupBufferMilliseconds))
             {
                 adaptiveBuffer.Reset();
 

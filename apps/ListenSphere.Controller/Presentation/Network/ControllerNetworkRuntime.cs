@@ -986,6 +986,21 @@ public sealed class ControllerNetworkRuntime :
         OnPropertyChanged(nameof(MasterVolumePercent));
         OnPropertyChanged(nameof(IsSystemMuted));
         OnPropertyChanged(nameof(SystemMuteButtonText));
+
+        // Endpoint mute/volume changes do not alter the device collection, so they
+        // must be projected explicitly. Otherwise an additional-output card keeps
+        // its old IsMuted value and every later click requests the same state.
+        localAudioRoutingCoordinator.UpdateEndpointStates(snapshot.Endpoints);
+        foreach (AdditionalOutputDeviceItemViewModel output in AdditionalOutputs)
+        {
+            AudioOutputEndpointSnapshot? endpoint = snapshot.Endpoints.FirstOrDefault(candidate =>
+                string.Equals(candidate.Device.Id, output.DeviceId, StringComparison.Ordinal));
+            if (endpoint is not null)
+            {
+                output.RefreshEndpointState(endpoint.VolumePercent, endpoint.IsMuted);
+            }
+        }
+
         if (!string.Equals(projectedAudioOutputStatus, snapshot.Status, StringComparison.Ordinal))
         {
             projectedAudioOutputStatus = snapshot.Status;
@@ -1057,7 +1072,7 @@ public sealed class ControllerNetworkRuntime :
                 output.VolumePercent,
                 output.IsMuted,
                 audioOutputCoordinator.SetEndpointVolume,
-                (id, muted) => _ = audioOutputCoordinator.SetEndpointMuteAsync(id, muted));
+                (id, muted) => audioOutputCoordinator.SetEndpointMuteAsync(id, muted));
             foreach (LocalAudioRouteSnapshot route in output.Routes)
             {
                 target.Routes.Add(new AdditionalOutputRouteItemViewModel(

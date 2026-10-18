@@ -57,6 +57,10 @@ internal interface IAudioOutputRuntime
     ValueTask<IReadOnlyList<IAudioDevice>> GetPlaybackDevicesAsync(
         CancellationToken cancellationToken);
 
+    ValueTask SetDefaultPlaybackDeviceAsync(
+        string deviceId,
+        CancellationToken cancellationToken);
+
     ValueTask<float> GetVolumeAsync(string deviceId, CancellationToken cancellationToken);
 
     ValueTask SetVolumeAsync(
@@ -88,6 +92,11 @@ internal sealed class ControllerAudioOutputRuntime(
     public ValueTask<IReadOnlyList<IAudioDevice>> GetPlaybackDevicesAsync(
         CancellationToken cancellationToken) =>
         deviceManager.GetPlaybackDevicesAsync(cancellationToken);
+
+    public ValueTask SetDefaultPlaybackDeviceAsync(
+        string deviceId,
+        CancellationToken cancellationToken) =>
+        deviceManager.SetDefaultPlaybackDeviceAsync(deviceId, cancellationToken);
 
     public ValueTask<float> GetVolumeAsync(
         string deviceId,
@@ -134,6 +143,8 @@ internal sealed class AudioOutputCoordinator : IAsyncDisposable
     private readonly CancellationTokenSource lifetime = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource>
         endpointVolumeDebounces = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> endpointMuteGates =
+        new(StringComparer.Ordinal);
     private AudioOutputSnapshot snapshot = AudioOutputSnapshot.Empty;
     private IAudioPlaybackSink? playback;
     private CancellationTokenSource? masterVolumeDebounce;
@@ -241,12 +252,28 @@ internal sealed class AudioOutputCoordinator : IAsyncDisposable
         {
             IAudioDevice selected = Snapshot.Devices.FirstOrDefault(candidate =>
                 string.Equals(candidate.Id, device.Id, StringComparison.Ordinal)) ?? device;
-            Update(current => current with
+            await runtime.SetDefaultPlaybackDeviceAsync(selected.Id, cancellationToken)
+                .ConfigureAwait(false);
+            // The selector represents the Windows default endpoint. Re-enumerate only
+            // after Windows confirms the change, then rebuild both the phone playback
+            // sink and the local-loopback projection from that authoritative state.
+            Update(current => current with { FollowSystemDefault = true });
+            await RefreshCoreUnderLockAsync(
+                preferredDeviceId: null,
+                synchronizeMasterVolume: true,
+                cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(
+                    Snapshot.SelectedDevice?.Id,
+                    selected.Id,
+                    StringComparison.Ordinal))
             {
-                SelectedDevice = selected,
-                FollowSystemDefault = false
-            });
-            await SwitchPlaybackAsync(selected, true, cancellationToken).ConfigureAwait(false);
+                throw new InvalidOperationException("Windows 返回的默认输出设备与请求不一致。");
+            }
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            ReportError($"切换 Windows 输出设备失败：{exception.Message}");
+            Log.Error(exception, "Failed to set default playback endpoint {DeviceId}", device.Id);
         }
         finally
         {
@@ -296,15 +323,18 @@ internal sealed class AudioOutputCoordinator : IAsyncDisposable
         }
 
         Update(current => current with { IsSystemMuted = isMuted });
-        try
+        bool applied = await SetMuteVerifiedAsync(
+            selected.Id,
+            isMuted,
+            cancellationToken).ConfigureAwait(false);
+        if (!applied && string.Equals(
+                Snapshot.SelectedDevice?.Id,
+                selected.Id,
+                StringComparison.Ordinal))
         {
-            await runtime.SetMuteAsync(selected.Id, isMuted, cancellationToken)
+            bool actual = await ReadMuteSafelyAsync(selected.Id, !isMuted, cancellationToken)
                 .ConfigureAwait(false);
-        }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            ReportError($"设置系统静音失败：{exception.Message}");
-            Log.Warning(exception, "Failed to set output endpoint mute");
+            Update(current => current with { IsSystemMuted = actual });
         }
     }
 
@@ -329,21 +359,95 @@ internal sealed class AudioOutputCoordinator : IAsyncDisposable
         _ = SetEndpointVolumeAfterDelayAsync(deviceId, normalized, cancellation);
     }
 
-    public async Task SetEndpointMuteAsync(
+    public async Task<bool> SetEndpointMuteAsync(
         string deviceId,
         bool isMuted,
         CancellationToken cancellationToken = default)
     {
+        Log.Information(
+            "Setting output endpoint mute for {DeviceId} to {IsMuted}",
+            deviceId,
+            isMuted);
         UpdateEndpoint(deviceId, endpoint => endpoint with { IsMuted = isMuted });
+        bool applied = await SetMuteVerifiedAsync(deviceId, isMuted, cancellationToken)
+            .ConfigureAwait(false);
+        if (applied)
+        {
+            Log.Information(
+                "Output endpoint mute confirmed for {DeviceId}: {IsMuted}",
+                deviceId,
+                isMuted);
+            return isMuted;
+        }
+
+        bool actual = await ReadMuteSafelyAsync(deviceId, !isMuted, cancellationToken)
+            .ConfigureAwait(false);
+        UpdateEndpoint(deviceId, endpoint => endpoint with { IsMuted = actual });
+        return actual;
+    }
+
+    private async Task<bool> SetMuteVerifiedAsync(
+        string deviceId,
+        bool isMuted,
+        CancellationToken cancellationToken)
+    {
+        SemaphoreSlim muteGate = endpointMuteGates.GetOrAdd(
+            deviceId,
+            static _ => new SemaphoreSlim(1, 1));
+        await muteGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await runtime.SetMuteAsync(deviceId, isMuted, cancellationToken)
+            Exception? lastFailure = null;
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                try
+                {
+                    await runtime.SetMuteAsync(deviceId, isMuted, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (await runtime.GetMuteAsync(deviceId, cancellationToken)
+                            .ConfigureAwait(false) == isMuted)
+                    {
+                        return true;
+                    }
+                    lastFailure = new InvalidOperationException("Windows 未确认静音状态变更。");
+                }
+                catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    lastFailure = exception;
+                }
+
+                if (attempt < 3)
+                {
+                    await Task.Delay(40 * attempt, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            string message = lastFailure?.Message ?? "Windows 未确认静音状态变更。";
+            ReportError($"设置输出设备静音失败：{message}");
+            Log.Warning(lastFailure,
+                "Failed to verify output endpoint mute for {DeviceId}", deviceId);
+            return false;
+        }
+        finally
+        {
+            muteGate.Release();
+        }
+    }
+
+    private async Task<bool> ReadMuteSafelyAsync(
+        string deviceId,
+        bool fallback,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await runtime.GetMuteAsync(deviceId, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            ReportError($"设置输出设备静音失败：{exception.Message}");
-            Log.Warning(exception, "Failed to set output endpoint mute for {DeviceId}", deviceId);
+            Log.Warning(exception, "Failed to read output endpoint mute for {DeviceId}", deviceId);
+            return fallback;
         }
     }
 
