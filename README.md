@@ -2,7 +2,7 @@
 
 聆界（ListenSphere）是一款面向多电脑、多设备用户的局域网音频中枢。
 
-当前产品版本：`0.6.0-beta.1`（P11 Beta）。
+当前产品版本：`0.7.0-beta.1`（Beta）。
 
 当前仓库已完成：
 
@@ -59,7 +59,7 @@ Android 10（API 29）或更高版本才支持本项目使用的 AudioPlaybackCa
 
 ## 下载
 
-P11-C 已具备本地生成 Windows Installer 的能力；P11-E 已提供 GitHub Actions 手动 Packaging Workflow，可从成功运行的六组 Actions Artifacts 下载候选包。它们不是正式 GitHub Release。仓库根目录中的历史测试包不应视为正式发布。
+Windows Beta 安装包可从 [GitHub Releases](https://github.com/fengxxdwn/listen-sphere/releases) 下载。Packaging Workflow 产生的 Actions Artifacts 是构建候选包，不等同于 GitHub Release；仓库根目录中的历史测试包也不应视为正式发布。
 
 ## Windows 安装
 
@@ -71,7 +71,7 @@ P11-B 已具备本地生成自包含 Controller 与 Sender `win-x64` 便携包�
 
 ## Android 安装
 
-P11-D 已具备本地生成 Debug 和 Release APK 的能力。未配置 release keystore 时，Release APK 会明确标记为 `unsigned`；只有通过正式 keystore 签名验证后才使用正式文件名。P11-E 手动 Packaging Workflow 默认上传 Debug 与 unsigned Release Actions Artifacts；任何永久 keystore 都不会提交到本仓库，正式 GitHub Release 仍未创建。
+P11-D 已具备本地生成 Debug 和 Release APK 的能力。未配置 release keystore 时，Release APK 会明确标记为 `unsigned`；只有通过正式 keystore 签名验证后才使用正式文件名。P11-E 手动 Packaging Workflow 默认上传 Debug 与 unsigned Release Actions Artifacts；任何永久 keystore 都不会提交到本仓库。未签名的 Android Release APK 不作为正式发布包上传。
 
 ## 系统要求
 
@@ -85,7 +85,7 @@ P11-D 已具备本地生成 Debug 和 Release APK 的能力。未配置 release 
 
 ## Beta 注意事项
 
-- P11 尚未完成安装器签名、自动更新或应用商店发布。
+- Windows 安装器尚未签名，软件更新需要用户确认后安装；尚未提供无人值守自动安装或应用商店发布。
 - 安装前保留重要设置备份；卸载默认不会删除用户数据。
 - 网络隔离、客户端隔离或受保护的 Android 音频内容可能阻止连接或捕获。
 
