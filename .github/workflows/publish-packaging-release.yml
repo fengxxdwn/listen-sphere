@@ -81,7 +81,7 @@ jobs:
           cp "staging/controller/$controller" "staging/release/$controller"
           cp "staging/sender/$sender" "staging/release/$sender"
           cp "staging/installer/$installer" "staging/release/$installer"
-          grep -E '  ListenSphere-(Controller|Sender|Setup)-' staging/checksums/SHA256SUMS.txt > staging/release/SHA256SUMS.txt
+          grep -E '  ListenSphere-(Controller|Sender|Setup)-' staging/checksums/SHA256SUMS.txt | tr -d '\r' > staging/release/SHA256SUMS.txt
 
           cd staging/release
           [[ "$(wc -l < SHA256SUMS.txt)" -eq 3 ]] || { echo 'Unexpected Windows checksum entry count.' >&2; exit 1; }
