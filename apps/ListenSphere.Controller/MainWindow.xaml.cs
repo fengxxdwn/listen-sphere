@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         this.viewModel = viewModel;
+        viewModel.Updates.InstallLaunched += OnUpdateInstallLaunched;
         DataContext = viewModel;
         Loaded += OnLoaded;
         Closing += OnClosing;
@@ -30,6 +31,8 @@ public partial class MainWindow : Window
     }
 
     public event EventHandler? MinimizedToTray;
+
+    private void OnUpdateInstallLaunched(object? sender, EventArgs args) => RequestExit();
 
     public void ShowAndActivate()
     {

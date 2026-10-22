@@ -5,6 +5,7 @@
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
         <ResourceDictionary>
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
             <presentation:ZeroCountToVisibilityConverter
                 x:Key="ZeroCountToVisibilityConverter" />
             <ResourceDictionary.MergedDictionaries>

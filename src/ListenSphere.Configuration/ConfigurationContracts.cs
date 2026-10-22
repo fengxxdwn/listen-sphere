@@ -120,6 +120,8 @@ public sealed record ListenSphereSettings
     public float LocalSourceEqualizerStrength { get; init; } = 1f;
     public bool FirstRunCompleted { get; init; }
     public IReadOnlyList<SceneSettings> Scenes { get; init; } = [];
+    public Guid? LastAppliedSceneId { get; init; }
+    public bool CheckForUpdatesOnStartup { get; init; } = true;
     public IReadOnlyList<Guid> PairedDeviceIds { get; init; } = [];
     public IReadOnlyList<string> SenderSelectedApplicationKeys { get; init; } = [];
     public string SenderCaptureMode { get; init; } = "applications";

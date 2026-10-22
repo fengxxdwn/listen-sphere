@@ -11,10 +11,11 @@
         </Grid.RowDefinitions>
         <StackPanel>
             <TextBlock Style="{StaticResource EyebrowText}" Text="控制中心" />
-            <Border Margin="0,8,0,0"
+            <Button Margin="0,8,0,0" Command="{Binding ShowDashboardCommand}"
+                    AutomationProperties.Name="声音总览"
                     Padding="11,9"
                     Background="#1A2638"
-                    CornerRadius="8">
+                    BorderThickness="0">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Style="{StaticResource IconText}"
                                Foreground="{StaticResource AccentBrush}"
@@ -24,7 +25,18 @@
                                FontWeight="SemiBold"
                                Text="声音总览" />
                 </StackPanel>
-            </Border>
+            </Button>
+            <Button Margin="0,8,0,0" Command="{Binding ShowSettingsCommand}"
+                    AutomationProperties.Name="设置" Padding="11,9"
+                    Background="#1A2638" BorderThickness="0">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource IconText}"
+                               Foreground="{StaticResource AccentBrush}"
+                               Text="&#xE713;" />
+                    <TextBlock Margin="10,0,0,0" VerticalAlignment="Center"
+                               FontWeight="SemiBold" Text="设置" />
+                </StackPanel>
+            </Button>
         </StackPanel>
 
         <Border Grid.Row="1"
