@@ -16,6 +16,7 @@ public sealed class ControllerViewModel : ObservableViewModel, IAsyncDisposable
     private string senderStatusText = "发送端未启动";
     private bool initialized;
     private bool disposed;
+    private bool isSettingsVisible;
 
     public ControllerViewModel(
         IWindowsAudioSessionManager sessionManager,
@@ -39,6 +40,18 @@ public sealed class ControllerViewModel : ObservableViewModel, IAsyncDisposable
             network,
             () => settingsCoordinator.TrySaveAsync());
         Diagnostics = new DiagnosticsViewModel(diagnosticsExporter, diagnosticEvents);
+        Updates = new SoftwareUpdateViewModel(new GitHubUpdateService(),
+            () => settingsCoordinator.QueueSave());
+        ShowSettingsCommand = new AsyncRelayCommand(() =>
+        {
+            IsSettingsVisible = true;
+            return Task.CompletedTask;
+        });
+        ShowDashboardCommand = new AsyncRelayCommand(() =>
+        {
+            IsSettingsVisible = false;
+            return Task.CompletedTask;
+        });
         FirstRun = new FirstRunViewModel(() => settingsCoordinator.TrySaveAsync());
         EnableSenderCommand = new AsyncRelayCommand(EnableSenderAsync);
         Dashboard = new ControllerDashboardViewModel(this);
@@ -52,6 +65,19 @@ public sealed class ControllerViewModel : ObservableViewModel, IAsyncDisposable
     public LocalSessionsViewModel LocalSessions { get; }
     public SceneViewModel Scene { get; }
     public DiagnosticsViewModel Diagnostics { get; }
+    public SoftwareUpdateViewModel Updates { get; }
+    public AsyncRelayCommand ShowSettingsCommand { get; }
+    public AsyncRelayCommand ShowDashboardCommand { get; }
+    public bool IsSettingsVisible
+    {
+        get => isSettingsVisible;
+        private set
+        {
+            if (SetField(ref isSettingsVisible, value))
+                OnPropertyChanged(nameof(IsDashboardVisible));
+        }
+    }
+    public bool IsDashboardVisible => !IsSettingsVisible;
     public FirstRunViewModel FirstRun { get; }
     public AsyncRelayCommand EnableSenderCommand { get; }
 
@@ -91,7 +117,8 @@ public sealed class ControllerViewModel : ObservableViewModel, IAsyncDisposable
             Log.Warning(exception, "Failed to load controller settings; defaults are in use");
         }
 
-        Scene.Initialize(settings.Scenes);
+        Scene.Initialize(settings.Scenes, settings.LastAppliedSceneId);
+        Updates.Initialize(settings.CheckForUpdatesOnStartup);
         FirstRun.Initialize(settings.FirstRunCompleted);
         await Network.InitializeAsync(
             settings.PlaybackDeviceId,
@@ -115,6 +142,16 @@ public sealed class ControllerViewModel : ObservableViewModel, IAsyncDisposable
             settings.MicrophoneOutputEnabled,
             settings.ComputerMicrophoneDeviceId);
         await LocalSessions.InitializeAsync();
+        try
+        {
+            await Scene.RestoreLastAppliedAsync();
+        }
+        catch (Exception exception)
+        {
+            Scene.ReportRestoreFailure(exception);
+            Log.Warning(exception, "Failed to restore last applied scene");
+        }
+        Updates.CheckOnStartupIfEnabled();
         if (settingsCoordinator.CompatibilityWarning is { } warning)
             LocalSessions.ReportError($"设置文件：{warning}");
     }
@@ -126,6 +163,8 @@ public sealed class ControllerViewModel : ObservableViewModel, IAsyncDisposable
         MasterVolume = Network.MasterVolumePercent / 100,
         FirstRunCompleted = !FirstRun.IsVisible,
         Scenes = Scene.Scenes.ToArray(),
+        LastAppliedSceneId = Scene.LastAppliedSceneId,
+        CheckForUpdatesOnStartup = Updates.CheckOnStartup,
         PairedDeviceIds = Network.TrustedDevices.Select(device => device.DeviceId).ToArray(),
         AutomaticRoutingEnabled = Network.AutomaticRoutingEnabled,
         AudioRoutingRules = Network.CaptureRoutingRules(),

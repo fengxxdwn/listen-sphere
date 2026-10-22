@@ -15,6 +15,7 @@ public sealed class SceneViewModel : ObservableViewModel
     private readonly ControllerNetworkViewModel network;
     private readonly Func<Task<bool>> persist;
     private SceneSettings? selectedScene;
+    private Guid? lastAppliedSceneId;
     private string newSceneName = string.Empty;
     private string statusText = "保存当前声道、输出设备和主音量，随时一键恢复。";
 
@@ -46,6 +47,7 @@ public sealed class SceneViewModel : ObservableViewModel
     }
 
     public ObservableCollection<SceneSettings> Scenes { get; } = [];
+    public Guid? LastAppliedSceneId => lastAppliedSceneId;
     public AsyncRelayCommand SaveCommand { get; }
     public AsyncRelayCommand ApplyCommand { get; }
     public AsyncRelayCommand DeleteCommand { get; }
@@ -90,14 +92,31 @@ public sealed class SceneViewModel : ObservableViewModel
         }
     }
 
-    public void Initialize(IEnumerable<SceneSettings> scenes)
+    public void Initialize(IEnumerable<SceneSettings> scenes, Guid? lastAppliedSceneId = null)
     {
         Scenes.Clear();
         foreach (SceneSettings scene in scenes.OrderBy(scene => scene.Name))
         {
             Scenes.Add(scene);
         }
+        this.lastAppliedSceneId = lastAppliedSceneId;
+        SelectedScene = Scenes.FirstOrDefault(scene => scene.SceneId == lastAppliedSceneId);
     }
+
+    public async Task RestoreLastAppliedAsync()
+    {
+        SceneSettings? scene = Scenes.FirstOrDefault(item => item.SceneId == lastAppliedSceneId);
+        if (scene is null)
+        {
+            return;
+        }
+
+        await sceneService.ApplyAsync(scene, localSessions, network);
+        StatusText = $"已自动恢复上次使用的场景“{scene.Name}”。";
+    }
+
+    public void ReportRestoreFailure(Exception exception) =>
+        StatusText = $"自动恢复场景失败：{exception.Message}";
 
     private async Task SaveAsync()
     {
@@ -110,6 +129,7 @@ public sealed class SceneViewModel : ObservableViewModel
             localSessions,
             network);
         SelectedScene = scene;
+        lastAppliedSceneId = scene.SceneId;
         NewSceneName = string.Empty;
         if (await persist())
         {
@@ -125,6 +145,7 @@ public sealed class SceneViewModel : ObservableViewModel
         }
 
         await sceneService.ApplyAsync(scene, localSessions, network);
+        lastAppliedSceneId = scene.SceneId;
         if (await persist())
         {
             StatusText = $"已恢复场景“{scene.Name}”。未运行的应用将在下次保存时更新。";
@@ -139,6 +160,10 @@ public sealed class SceneViewModel : ObservableViewModel
         }
 
         sceneService.Delete(Scenes, scene);
+        if (lastAppliedSceneId == scene.SceneId)
+        {
+            lastAppliedSceneId = null;
+        }
         SelectedScene = null;
         if (await persist())
         {

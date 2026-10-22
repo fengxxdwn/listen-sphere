@@ -8,6 +8,31 @@ namespace ListenSphere.Windows.TechnicalTests;
 
 public sealed class R4ControllerTests
 {
+    [Theory]
+    [InlineData("0.6.0-beta.2", "0.6.0-beta.1", 1)]
+    [InlineData("0.6.0-rc.1", "0.6.0-beta.2", 1)]
+    [InlineData("0.6.0", "0.6.0-rc.1", 1)]
+    [InlineData("0.5.9", "0.6.0-beta.1", -1)]
+    public void GitHubUpdateService_OrdersReleaseVersions(
+        string candidate, string installed, int expectedSign)
+    {
+        Assert.Equal(expectedSign, Math.Sign(GitHubUpdateService.CompareVersions(candidate, installed)));
+    }
+
+    [Fact]
+    public void SceneViewModel_SelectsLastAppliedSceneOnInitialize()
+    {
+        var first = new SceneSettings(Guid.NewGuid(), "工作", []);
+        var last = new SceneSettings(Guid.NewGuid(), "游戏", []);
+        var viewModel = new SceneViewModel(
+            null!, null!, null!, null!, null!, () => Task.FromResult(true));
+
+        viewModel.Initialize([first, last], last.SceneId);
+
+        Assert.Equal(last.SceneId, viewModel.LastAppliedSceneId);
+        Assert.Equal(last.SceneId, viewModel.SelectedScene?.SceneId);
+    }
+
     [Fact]
     public async Task SettingsCoordinator_DebouncesAndPersistsLatestSnapshot()
     {

@@ -41,6 +41,7 @@
 
         <ContentControl x:Name="DashboardContentHost"
                         Grid.Column="1"
+                        Visibility="{Binding IsDashboardVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
                         Content="{Binding Dashboard}">
             <ContentControl.ContentTemplate>
                 <DataTemplate>
@@ -48,6 +49,9 @@
                 </DataTemplate>
             </ContentControl.ContentTemplate>
         </ContentControl>
+
+        <views:SettingsView Grid.ColumnSpan="2" Panel.ZIndex="10"
+                            Visibility="{Binding IsSettingsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
         <views:ControllerDialogHostView Grid.ColumnSpan="2"
                                         Panel.ZIndex="20" />

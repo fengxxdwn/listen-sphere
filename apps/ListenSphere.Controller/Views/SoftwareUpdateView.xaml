@@ -1,0 +1,52 @@
+<UserControl x:Class="ListenSphere.Controller.Views.SoftwareUpdateView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="30,28" MaxWidth="760" HorizontalAlignment="Left">
+            <TextBlock FontSize="26" FontWeight="SemiBold" Text="软件更新" />
+            <TextBlock Margin="0,6,0,22" Foreground="{StaticResource TextSecondaryBrush}"
+                       Text="从 GitHub 检查并安装聆界的新版本" />
+            <Border Padding="22" Background="{StaticResource SurfaceSubtleBrush}"
+                    CornerRadius="12">
+                <StackPanel>
+                    <TextBlock FontSize="18" FontWeight="SemiBold" Text="软件更新" />
+                    <TextBlock Margin="0,8,0,0" Foreground="{StaticResource TextSecondaryBrush}"
+                               Text="从聆界 GitHub Releases 获取 Windows 安装程序。下载完成后验证 SHA-256，再由你确认运行安装程序。"
+                               TextWrapping="Wrap" />
+                    <Grid Margin="0,22,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Foreground="{StaticResource TextSecondaryBrush}" Text="当前版本" />
+                        <TextBlock Grid.Column="1" Text="{Binding Updates.CurrentVersion}" />
+                    </Grid>
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Foreground="{StaticResource TextSecondaryBrush}" Text="可用版本" />
+                        <TextBlock Grid.Column="1" Text="{Binding Updates.LatestVersion}" />
+                    </Grid>
+                    <CheckBox Margin="0,22,0,0" Content="启动时检查更新"
+                              IsChecked="{Binding Updates.CheckOnStartup, Mode=TwoWay}" />
+                    <StackPanel Margin="0,18,0,0" Orientation="Horizontal">
+                        <Button Content="检查更新" Command="{Binding Updates.CheckCommand}" />
+                        <Button Margin="10,0,0,0" Content="下载并安装"
+                                Command="{Binding Updates.DownloadAndInstallCommand}" />
+                    </StackPanel>
+                    <ProgressBar Margin="0,18,0,0" Height="8" Minimum="0" Maximum="100"
+                                 Value="{Binding Updates.DownloadPercent, Mode=OneWay}" />
+                    <TextBlock Margin="0,10,0,0" Text="{Binding Updates.StatusText}"
+                               TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" />
+                    <TextBlock Margin="0,5,0,0" Text="{Binding Updates.DownloadPercent, StringFormat={}{0}%}"
+                               Foreground="{StaticResource TextSecondaryBrush}" />
+                    <TextBlock Margin="0,18,0,0" Foreground="{StaticResource TextSecondaryBrush}"
+                               Text="Beta 版本会检查 GitHub 预发布；正式版仅检查正式发布。更新不会删除本地设置与配对信息。"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

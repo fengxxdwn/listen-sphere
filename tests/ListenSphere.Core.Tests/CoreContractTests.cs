@@ -75,6 +75,8 @@ public sealed class CoreContractTests
             LocalSourceVolume = 1.5f,
             LocalSourceMuted = true,
             FirstRunCompleted = true,
+            LastAppliedSceneId = Guid.NewGuid(),
+            CheckForUpdatesOnStartup = false,
             SenderSelectedApplicationKeys = [@"C:\Apps\Game.exe", @"c:\apps\game.exe", "  Discord  "],
             SenderCaptureMode = "system",
             SenderCaptureDeviceId = "  endpoint-sender  ",
@@ -140,6 +142,8 @@ public sealed class CoreContractTests
             Assert.Equal(1f, actual.LocalSourceVolume);
             Assert.True(actual.LocalSourceMuted);
             Assert.True(actual.FirstRunCompleted);
+            Assert.Equal(expected.LastAppliedSceneId, actual.LastAppliedSceneId);
+            Assert.False(actual.CheckForUpdatesOnStartup);
             Assert.Equal([@"C:\Apps\Game.exe", "Discord"], actual.SenderSelectedApplicationKeys);
             Assert.Equal("system", actual.SenderCaptureMode);
             Assert.Equal("endpoint-sender", actual.SenderCaptureDeviceId);
