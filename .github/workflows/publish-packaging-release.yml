@@ -1,0 +1,114 @@
+name: Publish packaging artifacts to a draft release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful Packaging workflow run ID
+        required: true
+        type: string
+      tag:
+        description: Existing draft release tag, for example v0.7.0-beta.1
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-packaging-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Check out main and its history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate source run and draft release
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == 'refs/heads/main' ]] || { echo 'Run from main only.' >&2; exit 1; }
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Invalid source run ID.' >&2; exit 1; }
+          version=$(sed -n 's/.*<ListenSphereProductVersion>\([^<]*\)<\/ListenSphereProductVersion>.*/\1/p' eng/ListenSphere.Version.props)
+          [[ -n "$version" && "$RELEASE_TAG" == "v$version" ]] || { echo 'Release tag does not match product version.' >&2; exit 1; }
+
+          source_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")
+          [[ "$(jq -r '.path' <<< "$source_run")" == '.github/workflows/package.yml' && \
+             "$(jq -r '.head_branch' <<< "$source_run")" == 'main' && \
+             "$(jq -r '.event' <<< "$source_run")" == 'workflow_dispatch' && \
+             "$(jq -r '.conclusion' <<< "$source_run")" == 'success' ]] || {
+            echo 'Source run is not a successful main-branch Packaging workflow.' >&2; exit 1;
+          }
+          source_sha=$(jq -r '.head_sha' <<< "$source_run")
+          release=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,targetCommitish)
+          [[ "$(jq -r '.isDraft' <<< "$release")" == 'true' ]] || { echo 'Release is not a draft.' >&2; exit 1; }
+          [[ "$(jq -r '.targetCommitish' <<< "$release")" == "$source_sha" ]] || {
+            echo 'Release target does not match the Packaging source commit.' >&2; exit 1;
+          }
+          git merge-base --is-ancestor "$source_sha" HEAD || {
+            echo 'Packaging source commit is not in main history.' >&2; exit 1;
+          }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Download verified Packaging artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name checksums --dir staging/checksums
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name windows-controller-portable --dir staging/controller
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name windows-sender-portable --dir staging/sender
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name windows-installer --dir staging/installer
+
+      - name: Verify and upload Windows assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging/release
+          controller="ListenSphere-Controller-win-x64-$VERSION.zip"
+          sender="ListenSphere-Sender-win-x64-$VERSION.zip"
+          installer="ListenSphere-Setup-$VERSION-win-x64.exe"
+          cp "staging/controller/$controller" "staging/release/$controller"
+          cp "staging/sender/$sender" "staging/release/$sender"
+          cp "staging/installer/$installer" "staging/release/$installer"
+          grep -E '  ListenSphere-(Controller|Sender|Setup)-' staging/checksums/SHA256SUMS.txt > staging/release/SHA256SUMS.txt
+
+          cd staging/release
+          [[ "$(wc -l < SHA256SUMS.txt)" -eq 3 ]] || { echo 'Unexpected Windows checksum entry count.' >&2; exit 1; }
+          sha256sum --check SHA256SUMS.txt
+
+          release_assets=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets)
+          checksum_digest=$(sha256sum SHA256SUMS.txt | cut -d ' ' -f 1)
+          existing_checksum=$(jq -r '.assets[] | select(.name == "SHA256SUMS.txt") | .digest' <<< "$release_assets")
+          [[ "$existing_checksum" == "sha256:$checksum_digest" ]] || {
+            echo 'Draft release checksum file differs from the verified Windows manifest.' >&2; exit 1;
+          }
+
+          for file in "$controller" "$sender" "$installer"; do
+            digest="sha256:$(sha256sum "$file" | cut -d ' ' -f 1)"
+            existing=$(jq -r --arg name "$file" '.assets[] | select(.name == $name) | .digest' <<< "$release_assets")
+            if [[ -n "$existing" ]]; then
+              [[ "$existing" == "$digest" ]] || { echo "Existing asset differs: $file" >&2; exit 1; }
+              echo "Already uploaded and verified: $file"
+            else
+              gh release upload "$RELEASE_TAG" "$file" --repo "$GITHUB_REPOSITORY"
+              echo "Uploaded: $file"
+            fi
+          done
+
+          release_assets=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets)
+          for file in "$controller" "$sender" "$installer"; do
+            digest="sha256:$(sha256sum "$file" | cut -d ' ' -f 1)"
+            uploaded=$(jq -r --arg name "$file" '.assets[] | select(.name == $name) | .digest' <<< "$release_assets")
+            [[ "$uploaded" == "$digest" ]] || { echo "Uploaded asset verification failed: $file" >&2; exit 1; }
+          done
