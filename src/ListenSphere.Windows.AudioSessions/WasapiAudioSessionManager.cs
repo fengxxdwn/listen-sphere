@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
 
@@ -8,6 +9,7 @@ namespace ListenSphere.Windows.AudioSessions;
 public sealed class WasapiAudioSessionManager : IWindowsAudioSessionManager
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(100);
+    private const long EndpointNameRefreshMilliseconds = 5_000;
     private readonly object gate = new();
     private CancellationTokenSource? monitorLifetime;
     private Task? monitorTask;
@@ -18,7 +20,7 @@ public sealed class WasapiAudioSessionManager : IWindowsAudioSessionManager
 
     public async ValueTask<IReadOnlyList<WindowsAudioSession>> GetSessionsAsync(
         CancellationToken cancellationToken) =>
-        await Task.Run(ReadSessions, cancellationToken).ConfigureAwait(false);
+        await Task.Run(() => ReadSessions(), cancellationToken).ConfigureAwait(false);
 
     public async ValueTask SetVolumeAsync(
         string sessionId,
@@ -114,11 +116,20 @@ public sealed class WasapiAudioSessionManager : IWindowsAudioSessionManager
     private async Task MonitorAsync(CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(PollInterval);
+        var endpointNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        long refreshEndpointNamesAt = 0;
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                var sessions = await GetSessionsAsync(cancellationToken).ConfigureAwait(false);
+                long now = Environment.TickCount64;
+                if (now >= refreshEndpointNamesAt)
+                {
+                    endpointNames.Clear();
+                    refreshEndpointNamesAt = now + EndpointNameRefreshMilliseconds;
+                }
+                var sessions = await Task.Run(() => ReadSessions(endpointNames), cancellationToken)
+                    .ConfigureAwait(false);
                 SessionsChanged?.Invoke(this, new AudioSessionsChangedEventArgs(sessions));
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -139,7 +150,8 @@ public sealed class WasapiAudioSessionManager : IWindowsAudioSessionManager
         }
     }
 
-    private static IReadOnlyList<WindowsAudioSession> ReadSessions()
+    private static IReadOnlyList<WindowsAudioSession> ReadSessions(
+        Dictionary<string, string>? endpointNames = null)
     {
         using var enumerator = new MMDeviceEnumerator();
         var devices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
@@ -148,30 +160,27 @@ public sealed class WasapiAudioSessionManager : IWindowsAudioSessionManager
         {
             using (device)
             {
-                var manager = device.AudioSessionManager;
-                try
+                // A newly created NAudio session manager has already enumerated sessions.
+                var collection = device.AudioSessionManager.Sessions;
+                string? deviceId = null;
+                string? deviceName = null;
+                int count = collection.Count;
+                for (var index = 0; index < count; index++)
                 {
-                    manager.RefreshSessions();
-                    var collection = manager.Sessions;
-                    for (var index = 0; index < collection.Count; index++)
+                    using var session = collection[index];
+                    if (session.State == AudioSessionState.AudioSessionStateExpired)
                     {
-                        using var session = collection[index];
-                        if (session.State == AudioSessionState.AudioSessionStateExpired)
-                        {
-                            continue;
-                        }
-
-                        sessions.Add(CreateSnapshot(
-                            session,
-                            device.ID,
-                            string.IsNullOrWhiteSpace(device.FriendlyName)
-                                ? device.DeviceFriendlyName
-                                : device.FriendlyName));
+                        continue;
                     }
-                }
-                finally
-                {
-                    manager.Dispose();
+
+                    deviceId ??= device.ID;
+                    if (deviceName is null &&
+                        (endpointNames is null || !endpointNames.TryGetValue(deviceId, out deviceName)))
+                    {
+                        deviceName = ReadEndpointName(device);
+                        endpointNames?.Add(deviceId, deviceName);
+                    }
+                    sessions.Add(CreateSnapshot(session, deviceId, deviceName));
                 }
             }
         }
@@ -183,6 +192,50 @@ public sealed class WasapiAudioSessionManager : IWindowsAudioSessionManager
             .ThenBy(session => session.DisplayName, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
     }
+
+    private static string ReadEndpointName(MMDevice device)
+    {
+        PropertyStore properties = device.Properties;
+        int fallbackIndex = -1;
+        int count = properties.Count;
+        for (int index = 0; index < count; index++)
+        {
+            PropertyKey key = properties.Get(index);
+            if (key.Equals(PropertyKeys.PKEY_Device_FriendlyName))
+            {
+                string? name = ReadStringProperty(properties, index);
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    return name;
+                }
+            }
+            else if (key.Equals(PropertyKeys.PKEY_DeviceInterface_FriendlyName))
+            {
+                fallbackIndex = index;
+            }
+        }
+
+        return fallbackIndex >= 0
+            ? ReadStringProperty(properties, fallbackIndex) ?? "Unknown"
+            : "Unknown";
+    }
+
+    private static string? ReadStringProperty(PropertyStore properties, int index)
+    {
+        // NAudio 2.3.0's FriendlyName getter does not clear the native property value.
+        PropVariant value = properties.GetValue(index);
+        try
+        {
+            return value.Value as string;
+        }
+        finally
+        {
+            _ = PropVariantClear(ref value);
+        }
+    }
+
+    [DllImport("ole32.dll", ExactSpelling = true)]
+    private static extern int PropVariantClear(ref PropVariant value);
 
     private static WindowsAudioSession CreateSnapshot(
         AudioSessionControl session,

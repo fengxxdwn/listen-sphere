@@ -168,10 +168,15 @@ internal sealed class LocalAudioRoutingCoordinator : IAsyncDisposable
             return;
         }
         applicationSources.TryGetValue(channelId, out LocalApplicationSource? previous);
-        applicationSources[channelId] = new LocalApplicationSource(
+        var next = new LocalApplicationSource(
             processId,
             displayName,
             identityKey);
+        bool sourceChanged = previous != next;
+        if (sourceChanged)
+        {
+            applicationSources[channelId] = next;
+        }
         if (previous is not null && previous.ProcessId != processId)
         {
             _ = RestartApplicationCaptureAsync(channelId);
@@ -180,7 +185,10 @@ internal sealed class LocalAudioRoutingCoordinator : IAsyncDisposable
         {
             _ = EnsureApplicationCaptureAsync(channelId);
         }
-        PublishSnapshot();
+        if (sourceChanged)
+        {
+            PublishSnapshot();
+        }
     }
 
     public async Task UnregisterApplicationSourceAsync(Guid channelId)
